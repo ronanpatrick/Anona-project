@@ -1,5 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+const List<String> onboardingTopics = <String>[
+  'Tech',
+  'Business',
+  'Science',
+  'Health',
+];
+
 enum SummaryTone {
   professional,
   casual,
@@ -24,6 +31,18 @@ enum SummaryTone {
         return 'Casual';
       case SummaryTone.bulletPointsOnly:
         return 'Bullet Points Only';
+    }
+  }
+
+  static SummaryTone fromDbValue(String? value) {
+    switch (value) {
+      case 'casual':
+        return SummaryTone.casual;
+      case 'bullet_points_only':
+        return SummaryTone.bulletPointsOnly;
+      case 'professional':
+      default:
+        return SummaryTone.professional;
     }
   }
 }

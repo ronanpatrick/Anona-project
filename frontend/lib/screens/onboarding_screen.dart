@@ -15,13 +15,6 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  static const List<String> _topics = <String>[
-    'Tech',
-    'Business',
-    'Science',
-    'Health',
-  ];
-
   final PageController _pageController = PageController();
   int _currentStep = 0;
   bool _isSaving = false;
@@ -139,7 +132,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: _topics
+                      children: onboardingTopics
                           .map(
                             (topic) => FilterChip(
                               label: Text(topic),

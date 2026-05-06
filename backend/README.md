@@ -84,10 +84,13 @@ Response:
 **POST** `/get-daily-digest`
 
 Fetches and summarizes trending news on user-specified topics.
+The digest is cached per `user_id` and UTC date (`YYYY-MM-DD`), so repeat opens on the same day return instantly.
+Authentication should be sent as `Authorization: Bearer <access_token>`; `user_id` in body/query is fallback for MVP compatibility.
 
 **Request Body:**
 ```json
 {
+  "user_id": "optional-if-using-bearer-token",
   "topics": ["technology", "artificial intelligence"],
   "tone": "Professional",
   "country": "us",
@@ -96,6 +99,7 @@ Fetches and summarizes trending news on user-specified topics.
 ```
 
 **Parameters:**
+- `user_id` (string, required if no Bearer token): User identifier for per-day digest caching
 - `topics` (list[str], required): Topics to search for
 - `tone` (string, default: "Professional"): Summary tone - one of `Professional`, `Casual`, `Academic`, `Friendly`
 - `country` (string, default: "us"): Country code for news (e.g., "us", "gb", "ca")
@@ -159,12 +163,14 @@ curl "http://localhost:8000/get-deep-dive?url=https://example.com/article"
 **GET** `/get-discovery-news`
 
 Fetches trending, viral, and innovative news outside typical user topics.
+Discovery results are cached per `user_id` and UTC date (`YYYY-MM-DD`) in `daily_discovery`.
 
 **Query Parameters:**
 - `excluded_topics` (list[str], optional): Topics to exclude
 - `tone` (string, default: "Professional"): Summary tone
 - `country` (string, default: "us"): Country code
 - `limit` (int, default: 10): Number of articles to return
+- `user_id` (string, optional fallback): Used only if no Bearer token is sent
 
 **Response:** Same as Daily Digest
 

@@ -97,6 +97,28 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=1200, temperature=0.6)
 
+    def summarize_discovery_bite(self, title: str, text: str, tone: str = "Professional") -> str:
+        source_text = text.strip()
+        if not source_text:
+            source_text = title.strip()
+        if not source_text:
+            raise ValueError("Cannot summarize empty discovery content")
+
+        normalized_tone = tone if tone in ALLOWED_TONES else "Professional"
+        prompt = (
+            "Write a bite-sized summary for this discovery news story.\n"
+            f"Tone: {normalized_tone}\n"
+            "Rules:\n"
+            "- Return exactly 1 short bullet line starting with '- '.\n"
+            "- Keep it under 30 words.\n"
+            "- Focus on the key why-it-matters angle.\n"
+            "- Do not add markdown headings, intros, or URLs.\n\n"
+            f"Title: {title.strip()}\n"
+            "Article text:\n"
+            f"{source_text}"
+        )
+        return self._generate(prompt, max_tokens=120, temperature=0.4)
+
     def deep_dive_summary(self, text: str, tone: str = "Professional") -> str:
         return self.summarize_deep_dive(text=text, tone=tone)
 

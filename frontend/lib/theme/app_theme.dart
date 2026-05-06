@@ -5,12 +5,15 @@ class AppTheme {
 
   static const Color _seedColor = Color(0xFF4A5D7A);
 
-  static ThemeData getLightTheme() {
+  static ThemeData getLightTheme({double fontSizeFactor = 1.0}) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: _seedColor,
       brightness: Brightness.light,
     );
-    final textTheme = _buildTextTheme(Brightness.light, colorScheme);
+    final textTheme = _buildTextTheme(
+      Brightness.light,
+      colorScheme,
+    ).apply(fontSizeFactor: fontSizeFactor);
 
     return ThemeData(
       useMaterial3: true,
@@ -44,12 +47,15 @@ class AppTheme {
     );
   }
 
-  static ThemeData getDarkTheme() {
+  static ThemeData getDarkTheme({double fontSizeFactor = 1.0}) {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: _seedColor,
       brightness: Brightness.dark,
     );
-    final textTheme = _buildTextTheme(Brightness.dark, colorScheme);
+    final textTheme = _buildTextTheme(
+      Brightness.dark,
+      colorScheme,
+    ).apply(fontSizeFactor: fontSizeFactor);
 
     return ThemeData(
       useMaterial3: true,

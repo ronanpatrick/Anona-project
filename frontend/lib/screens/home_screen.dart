@@ -23,7 +23,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _isLoading = true;
     _loadSavedArticleKeys();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchDailyDigest();
+    });
   }
 
   Future<void> _fetchDailyDigest() async {
@@ -443,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isLoading) {
       body = const Center(child: CircularProgressIndicator());
     } else if (_articles.isEmpty) {
-      body = const Center(child: Text('Tap the button to get your news.'));
+      body = const Center(child: Text('No daily digest available right now.'));
     } else {
       body = ListView.builder(
         itemCount: _articles.length,
@@ -504,14 +508,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Stack(
       children: <Widget>[
         Positioned.fill(child: body),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton(
-            onPressed: _isLoading ? null : _fetchDailyDigest,
-            child: const Icon(Icons.refresh),
-          ),
-        ),
         if (_isDeepDiveLoading)
           const Positioned.fill(
             child: Stack(

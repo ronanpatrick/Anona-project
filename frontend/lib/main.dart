@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' hide ChangeNotifierProvider;
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'providers/settings_provider.dart';
 import 'screens/auth_screen.dart';
 import 'screens/main_scaffold.dart';
 import 'screens/onboarding_screen.dart';
@@ -18,7 +20,14 @@ Future<void> main() async {
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );
 
-  runApp(const ProviderScope(child: AnonaApp()));
+  runApp(
+    ProviderScope(
+      child: ChangeNotifierProvider<SettingsProvider>(
+        create: (_) => SettingsProvider(),
+        child: const AnonaApp(),
+      ),
+    ),
+  );
 }
 
 class AnonaApp extends StatelessWidget {
@@ -35,12 +44,13 @@ class _AppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
     final client = Supabase.instance.client;
     return MaterialApp(
       title: 'Anona',
-      theme: AppTheme.getLightTheme(),
-      darkTheme: AppTheme.getDarkTheme(),
-      themeMode: ThemeMode.system,
+      theme: AppTheme.getLightTheme(fontSizeFactor: settings.fontSizeFactor),
+      darkTheme: AppTheme.getDarkTheme(fontSizeFactor: settings.fontSizeFactor),
+      themeMode: settings.themeMode,
       home: StreamBuilder<AuthState>(
         stream: client.auth.onAuthStateChange,
         initialData: AuthState(AuthChangeEvent.initialSession, client.auth.currentSession),

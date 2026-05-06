@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import datetime, timezone
 from typing import Literal
 
 import trafilatura
@@ -42,6 +43,7 @@ app.add_middleware(
 
 class DailyDigestRequest(BaseModel):
     topics: list[str]
+    user_id: str | None = None
     tone: ToneType = "Professional"
     country: str = "us"
     limit: int = Field(default=5, ge=1, le=10)
@@ -93,9 +95,9 @@ _STORY_STOPWORDS = {
 }
 
 
-def _verify_user_if_present(authorization: str | None) -> None:
+def _verify_user_if_present(authorization: str | None) -> str | None:
     if not authorization:
-        return
+        return None
     if not supabase_client:
         raise HTTPException(status_code=500, detail="Supabase is not configured")
     scheme, _, token = authorization.partition(" ")
@@ -105,8 +107,175 @@ def _verify_user_if_present(authorization: str | None) -> None:
         user_response = supabase_client.auth.get_user(token)
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"User verification failed: {exc}") from exc
-    if not getattr(user_response, "user", None):
+    user = getattr(user_response, "user", None)
+    if not user:
         raise HTTPException(status_code=401, detail="User verification failed")
+    user_id = str(getattr(user, "id", "")).strip()
+    return user_id or None
+
+
+def _require_supabase() -> Client:
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Supabase is not configured")
+    return supabase_client
+
+
+def _resolve_digest_user_id(
+    request_user_id: str | None,
+    authorization: str | None,
+    query_user_id: str | None = None,
+) -> str:
+    token_user_id = _verify_user_if_present(authorization)
+    body_user_id = (request_user_id or "").strip() or None
+    fallback_query_user_id = (query_user_id or "").strip() or None
+
+    if token_user_id and body_user_id and token_user_id != body_user_id:
+        raise HTTPException(status_code=401, detail="Token user_id does not match request user_id")
+    if token_user_id and fallback_query_user_id and token_user_id != fallback_query_user_id:
+        raise HTTPException(status_code=401, detail="Token user_id does not match query user_id")
+
+    user_id = token_user_id or body_user_id or fallback_query_user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required in token, request body, or query")
+    return user_id
+
+
+def _today_digest_date() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _get_cached_daily_digest(user_id: str, current_date: str) -> DigestResponse | None:
+    client = _require_supabase()
+    try:
+        result = (
+            client.table("daily_digests")
+            .select("digest_data")
+            .eq("user_id", user_id)
+            .eq("date", current_date)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Daily digest cache lookup failed: {exc}") from exc
+
+    row = getattr(result, "data", None)
+    if not isinstance(row, dict):
+        return None
+    digest_data = row.get("digest_data")
+    if not isinstance(digest_data, dict):
+        return None
+    try:
+        return DigestResponse.model_validate(digest_data)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Stored daily digest is invalid: {exc}") from exc
+
+
+def _digest_response_json(response: DigestResponse) -> dict:
+    if hasattr(response, "model_dump"):
+        return response.model_dump()
+    return response.dict()
+
+
+def _store_daily_digest(user_id: str, current_date: str, digest: DigestResponse) -> None:
+    client = _require_supabase()
+    payload = {
+        "user_id": user_id,
+        "date": current_date,
+        "digest_data": _digest_response_json(digest),
+    }
+    try:
+        client.table("daily_digests").insert(payload).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Daily digest cache write failed: {exc}") from exc
+
+
+def _article_summary_json(article: ArticleSummary) -> dict:
+    if hasattr(article, "model_dump"):
+        return article.model_dump()
+    return article.dict()
+
+
+def _get_cached_daily_discovery(user_id: str, current_date: str) -> list[ArticleSummary] | None:
+    client = _require_supabase()
+    try:
+        result = (
+            client.table("daily_discovery")
+            .select("discovery_data")
+            .eq("user_id", user_id)
+            .eq("date", current_date)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Daily discovery cache lookup failed: {exc}") from exc
+
+    row = getattr(result, "data", None)
+    if not isinstance(row, dict):
+        return None
+    discovery_data = row.get("discovery_data")
+    if not isinstance(discovery_data, list):
+        return None
+    try:
+        return [ArticleSummary.model_validate(item) for item in discovery_data if isinstance(item, dict)]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Stored daily discovery is invalid: {exc}") from exc
+
+
+def _store_daily_discovery(user_id: str, current_date: str, discovery: list[ArticleSummary]) -> None:
+    client = _require_supabase()
+    payload = {
+        "user_id": user_id,
+        "date": current_date,
+        "discovery_data": [_article_summary_json(item) for item in discovery],
+    }
+    try:
+        client.table("daily_discovery").insert(payload).execute()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Daily discovery cache write failed: {exc}") from exc
+
+
+def _normalize_topic_terms(items: list[str] | None) -> list[str]:
+    if not items:
+        return []
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        term = item.strip().lower()
+        if not term or term in seen:
+            continue
+        seen.add(term)
+        deduped.append(term)
+    return deduped
+
+
+def _load_user_excluded_topics(user_id: str | None) -> list[str]:
+    if not user_id or not supabase_client:
+        return []
+    try:
+        row = (
+            supabase_client.table("user_preferences")
+            .select("selected_topics,sports_teams,stock_tickers")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        return []
+    if not getattr(row, "data", None) or not isinstance(row.data, dict):
+        return []
+
+    selected = row.data.get("selected_topics") or []
+    sports = row.data.get("sports_teams") or []
+    stocks = row.data.get("stock_tickers") or []
+
+    collected: list[str] = []
+    for group in (selected, sports, stocks):
+        if not isinstance(group, list):
+            continue
+        for item in group:
+            if isinstance(item, str):
+                collected.append(item)
+    return _normalize_topic_terms(collected)
 
 
 def _story_tokens(article: NewsArticle) -> set[str]:
@@ -398,8 +567,14 @@ def health_check() -> dict[str, str | bool]:
 def get_daily_digest(
     request: DailyDigestRequest,
     authorization: str | None = Header(default=None),
+    user_id: str | None = Query(default=None),
 ) -> DigestResponse:
-    _verify_user_if_present(authorization)
+    user_id = _resolve_digest_user_id(request.user_id, authorization, query_user_id=user_id)
+    current_date = _today_digest_date()
+    cached_digest = _get_cached_daily_digest(user_id=user_id, current_date=current_date)
+    if cached_digest:
+        return cached_digest
+
     if not request.topics:
         raise HTTPException(status_code=400, detail="Topics list cannot be empty")
 
@@ -421,9 +596,19 @@ def get_daily_digest(
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
-    if not summaries:
-        return _friendly_empty_digest()
-    return DigestResponse(articles=summaries, count=len(summaries))
+    digest_response = (
+        DigestResponse(articles=summaries, count=len(summaries)) if summaries else _friendly_empty_digest()
+    )
+
+    try:
+        _store_daily_digest(user_id=user_id, current_date=current_date, digest=digest_response)
+    except HTTPException as cache_write_error:
+        cached_after_write_failure = _get_cached_daily_digest(user_id=user_id, current_date=current_date)
+        if cached_after_write_failure:
+            return cached_after_write_failure
+        raise cache_write_error
+
+    return digest_response
 
 
 @app.get("/get-deep-dive", response_model=DeepDiveResponse, tags=["analysis"])
@@ -445,39 +630,98 @@ def get_deep_dive(
     return DeepDiveResponse(url=url, analysis=analysis)
 
 
-@app.get("/get-discovery-news", response_model=DigestResponse, tags=["discovery"])
+@app.get("/get-discovery-news", response_model=list[ArticleSummary], tags=["discovery"])
 def get_discovery_news(
     excluded_topics: list[str] | None = Query(default=None),
     tone: ToneType = Query(default="Professional"),
     country: str = Query(default="us"),
-    limit: int = Query(default=5, ge=1, le=10),
+    limit: int = Query(default=5, ge=3, le=5),
     authorization: str | None = Header(default=None),
-) -> DigestResponse:
-    _verify_user_if_present(authorization)
+    user_id: str | None = Query(default=None),
+) -> list[ArticleSummary]:
+    user_id = _resolve_digest_user_id(request_user_id=None, authorization=authorization, query_user_id=user_id)
+    current_date = _today_digest_date()
+    cached_discovery = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
+    if cached_discovery is not None:
+        return cached_discovery
+
+    user_excluded_topics = _load_user_excluded_topics(user_id)
+    combined_excluded_topics = _normalize_topic_terms([*(excluded_topics or []), *user_excluded_topics])
+
+    discovery_queries = [
+        "top headlines",
+        "breaking news",
+        "world",
+        "innovation",
+        "science discovery",
+        "space",
+        "global economy",
+        "public health",
+    ]
 
     try:
         articles = news_service.fetch_news(
-            topics=[],
+            topics=discovery_queries,
             country=country,
-            limit=50,
-            exclude_topics=excluded_topics or [],
+            limit=30,
+            exclude_topics=combined_excluded_topics,
             discovery=True,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    try:
-        summaries = _build_summaries(
-            articles=articles,
-            topics=[],
-            tone=tone,
-            limit=limit,
+    if not articles:
+        _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=[])
+        return []
+
+    urls_to_scrape = [article.url for article in articles[: max(limit * 2, limit)]]
+    scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape), min_chars=120)
+    scraped_by_url = {item["url"]: item["text"] for item in scraped}
+
+    summaries: list[ArticleSummary] = []
+    seen_urls: set[str] = set()
+    for article in articles:
+        normalized_url = article.url.strip().lower()
+        if not normalized_url or normalized_url in seen_urls:
+            continue
+        seen_urls.add(normalized_url)
+
+        source_text = scraped_by_url.get(article.url, "").strip()
+        if not source_text:
+            source_text = article.description.strip() or article.title.strip()
+        if not source_text:
+            continue
+
+        try:
+            bite_sized_summary = ai_service.summarize_discovery_bite(
+                title=article.title,
+                text=source_text,
+                tone=tone,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
+
+        summaries.append(
+            ArticleSummary(
+                title=article.title,
+                sources=[article.source.strip() or "Unknown"],
+                urls=[article.url],
+                summary=bite_sized_summary,
+                image_url=article.image_url.strip() or None,
+            )
         )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
-    if not summaries:
-        return _friendly_empty_digest()
-    return DigestResponse(articles=summaries, count=len(summaries))
+        if len(summaries) >= limit:
+            break
+
+    try:
+        _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=summaries)
+    except HTTPException as cache_write_error:
+        cached_after_write_failure = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
+        if cached_after_write_failure is not None:
+            return cached_after_write_failure
+        raise cache_write_error
+
+    return summaries
 
 
 if __name__ == "__main__":

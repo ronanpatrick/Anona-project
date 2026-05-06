@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'briefing_screen.dart';
 import 'home_screen.dart';
 import 'saved_screen.dart';
+import '../widgets/main_drawer.dart';
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
@@ -21,58 +21,11 @@ class _MainScaffoldState extends State<MainScaffold> {
     SavedScreen(),
   ];
 
-  Future<void> _signOut() async {
-    try {
-      await Supabase.instance.client.auth.signOut();
-      if (!mounted) {
-        return;
-      }
-      Navigator.of(context).pop();
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sign out failed: $error')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Anona')),
-      drawer: Drawer(
-        child: SafeArea(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: <Widget>[
-              const DrawerHeader(
-                child: Align(
-                  alignment: Alignment.bottomLeft,
-                  child: Text(
-                    'Menu',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-              const ListTile(
-                leading: Icon(Icons.settings),
-                title: Text('Settings'),
-              ),
-              const ListTile(
-                leading: Icon(Icons.person),
-                title: Text('Profile'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout),
-                title: const Text('Sign Out'),
-                onTap: _signOut,
-              ),
-            ],
-          ),
-        ),
-      ),
+      drawer: const MainDrawer(),
       body: IndexedStack(
         index: _currentIndex,
         children: _tabs,
