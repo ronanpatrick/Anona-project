@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/article.dart';
 import '../models/market_snapshot_item.dart';
 import '../models/sports_scoreboard.dart';
+import 'summary_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/stock_watchlist_card.dart';
 import '../widgets/sports_scoreboard_card.dart';
+import '../theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,8 +18,12 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final ApiService _apiService = const ApiService();
+  late final PageController _pageController;
+  late final AnimationController _greetingAnimController;
+  late final Animation<double> _greetingFade;
+  late final Animation<Offset> _greetingSlide;
 
   List<Article> _articles = <Article>[];
   List<MarketSnapshotItem> _marketSnapshot = <MarketSnapshotItem>[];
@@ -26,11 +32,39 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   bool _isMarketLoading = false;
   bool _isSportsLoading = false;
-  bool _isDeepDiveLoading = false;
+
+  // Track current page for dot indicator
+  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
+    _pageController.addListener(() {
+      final page = _pageController.page?.round() ?? 0;
+      if (page != _currentPage) {
+        setState(() => _currentPage = page);
+      }
+    });
+
+    // Greeting entrance animation
+    _greetingAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _greetingFade = CurvedAnimation(
+      parent: _greetingAnimController,
+      curve: Curves.easeOut,
+    );
+    _greetingSlide = Tween<Offset>(
+      begin: const Offset(0, 0.18),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _greetingAnimController,
+      curve: Curves.easeOutCubic,
+    ));
+    _greetingAnimController.forward();
+
     _loadSavedArticleKeys();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchDailyDigest();
@@ -39,303 +73,104 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _fetchDailyDigest() async {
-    setState(() {
-      _isLoading = true;
-    });
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _greetingAnimController.dispose();
+    super.dispose();
+  }
 
+  // ── Data fetching (unchanged logic) ────────────────────────────────────────
+
+  Future<void> _fetchDailyDigest() async {
+    setState(() => _isLoading = true);
     try {
       final articles = await _apiService.fetchDailyDigest(
         topics: const ['Tech', 'AI'],
         tone: 'Casual',
       );
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _articles = articles;
-      });
+      if (!mounted) return;
+      setState(() => _articles = articles);
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to load digest: $error'),
-        ),
-      );
+      if (!mounted) return;
+      _showError('Failed to load digest: $error');
     } finally {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isLoading = false);
     }
   }
 
   Future<void> _fetchMarketSnapshot() async {
-    setState(() {
-      _isMarketLoading = true;
-    });
-
+    setState(() => _isMarketLoading = true);
     try {
-      final marketSnapshot = await _apiService.fetchMarketSnapshot();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _marketSnapshot = marketSnapshot;
-      });
+      final snap = await _apiService.fetchMarketSnapshot();
+      if (!mounted) return;
+      setState(() => _marketSnapshot = snap);
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load market snapshot: $error')),
-      );
+      if (!mounted) return;
+      _showError('Failed to load market snapshot: $error');
     } finally {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isMarketLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isMarketLoading = false);
     }
   }
 
   Future<void> _fetchSportsScoreboard() async {
-    setState(() {
-      _isSportsLoading = true;
-    });
-
+    setState(() => _isSportsLoading = true);
     try {
-      final scoreboard = await _apiService.fetchSportsScoreboard();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _sportsScoreboard = scoreboard;
-      });
+      final board = await _apiService.fetchSportsScoreboard();
+      if (!mounted) return;
+      setState(() => _sportsScoreboard = board);
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load sports scoreboard: $error')),
-      );
+      if (!mounted) return;
+      _showError('Failed to load sports scoreboard: $error');
     } finally {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isSportsLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isSportsLoading = false);
     }
   }
 
-  Future<void> _openExternalUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid source URL')),
-      );
-      return;
-    }
-
-    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open source URL')),
-      );
-    }
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _showReadOriginalSheet(Article article) async {
-    final entries = <MapEntry<String, String>>[];
-    final itemCount = article.sources.length > article.urls.length
-        ? article.sources.length
-        : article.urls.length;
-
-    for (var index = 0; index < itemCount; index++) {
-      final url = index < article.urls.length ? article.urls[index].trim() : '';
-      final source = index < article.sources.length
-          ? article.sources[index].trim()
-          : '';
-      entries.add(
-        MapEntry<String, String>(
-          source.isEmpty ? 'Publisher ${index + 1}' : source,
-          url,
-        ),
-      );
-    }
-
-    if (entries.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No sources available')),
-      );
-      return;
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: entries
-                .map(
-                  (entry) => ListTile(
-                    leading: const Icon(Icons.open_in_new),
-                    title: Text(entry.key),
-                    subtitle: Text(
-                      entry.value.isEmpty ? 'No URL available' : entry.value,
-                    ),
-                    onTap: entry.value.isEmpty
-                        ? null
-                        : () async {
-                            Navigator.of(context).pop();
-                            await _openExternalUrl(entry.value);
-                          },
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _showDeepDive(Article article) async {
-    final url = _firstValidUrl(article);
-    if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No article URL available')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isDeepDiveLoading = true;
-    });
-
-    try {
-      final analysis = await _apiService.fetchDeepDive(url);
-      if (!mounted) {
-        return;
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Comprehensive Read'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: SelectableText(analysis),
-              ),
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load deep dive: $error')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isDeepDiveLoading = false;
-        });
-      }
-    }
-  }
+  // ── Article helpers (unchanged logic) ──────────────────────────────────────
 
   String _firstValidUrl(Article article) {
     for (final url in article.urls) {
-      final trimmed = url.trim();
-      if (trimmed.isNotEmpty) {
-        return trimmed;
-      }
+      final t = url.trim();
+      if (t.isNotEmpty) return t;
     }
     return '';
   }
 
-  String _sourceSubtitle(Article article) {
-    final normalizedSources = article.sources
-        .map((source) => source.trim())
-        .where((source) => source.isNotEmpty)
-        .toList(growable: false);
-    if (normalizedSources.isEmpty) {
-      return 'Unknown source';
-    }
-
-    final primarySource = normalizedSources.first;
-    final otherCount = normalizedSources.length - 1;
-    if (otherCount <= 0) {
-      return primarySource;
-    }
-    final otherLabel = otherCount == 1 ? 'other' : 'others';
-    return '$primarySource and $otherCount $otherLabel';
-  }
-
   String _articleKey(Article article) {
-    final firstUrl = _firstValidUrl(article);
-    if (firstUrl.isNotEmpty) {
-      return 'url:$firstUrl';
-    }
-    return 'title:${article.title.trim().toLowerCase()}';
+    final u = _firstValidUrl(article);
+    return u.isNotEmpty ? 'url:$u' : 'title:${article.title.trim().toLowerCase()}';
   }
 
   List<String> _parseStringList(dynamic value) {
     if (value is String) {
-      final trimmed = value.trim();
-      return trimmed.isEmpty ? <String>[] : <String>[trimmed];
+      final t = value.trim();
+      return t.isEmpty ? [] : [t];
     }
     if (value is List) {
-      return value
-          .whereType<String>()
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
+      return value.whereType<String>().map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     }
-    return <String>[];
+    return [];
   }
 
   String _parseFirstTitle(dynamic row) {
-    if (row is! Map<String, dynamic>) {
-      return '';
-    }
+    if (row is! Map<String, dynamic>) return '';
     final title = (row['title'] as String? ?? '').trim();
-    if (title.isNotEmpty) {
-      return title.toLowerCase();
-    }
+    if (title.isNotEmpty) return title.toLowerCase();
     final titles = _parseStringList(row['titles']);
-    if (titles.isNotEmpty) {
-      return titles.first.toLowerCase();
-    }
-    return '';
+    return titles.isNotEmpty ? titles.first.toLowerCase() : '';
   }
 
   Future<void> _loadSavedArticleKeys() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      return;
-    }
-
+    if (user == null) return;
     try {
       final rows = await Supabase.instance.client
           .from('saved_summaries')
@@ -345,289 +180,365 @@ class _HomeScreenState extends State<HomeScreen> {
       if (rows is List) {
         for (final item in rows.whereType<Map<String, dynamic>>()) {
           final urls = _parseStringList(item['urls']);
-          if (urls.isNotEmpty) {
-            keys.add('url:${urls.first}');
-            continue;
-          }
-          final title = _parseFirstTitle(item);
-          if (title.isNotEmpty) {
-            keys.add('title:$title');
-          }
+          if (urls.isNotEmpty) { keys.add('url:${urls.first}'); continue; }
+          final t = _parseFirstTitle(item);
+          if (t.isNotEmpty) keys.add('title:$t');
         }
       }
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _savedArticleKeys
-          ..clear()
-          ..addAll(keys);
-      });
-    } catch (_) {
-      return;
-    }
+      if (!mounted) return;
+      setState(() { _savedArticleKeys..clear()..addAll(keys); });
+    } catch (_) {}
   }
 
-  Future<String> _getOrCreateDefaultFolderId(String userId) async {
-    final client = Supabase.instance.client;
-    final existing = await client
-        .from('folders')
-        .select('id')
-        .eq('user_id', userId)
-        .order('created_at')
-        .limit(1)
-        .maybeSingle();
-
-    if (existing != null) {
-      final folderId = (existing['id'] as String? ?? '').trim();
-      if (folderId.isNotEmpty) {
-        return folderId;
-      }
-    }
-
-    final created = await client
-        .from('folders')
-        .insert(<String, dynamic>{
-          'user_id': userId,
-          'name': 'Saved',
-        })
-        .select('id')
-        .single();
-    final folderId = (created['id'] as String? ?? '').trim();
-    if (folderId.isEmpty) {
-      throw const FormatException('Failed to create a default folder.');
-    }
-    return folderId;
-  }
-
-  Future<void> _saveArticle(Article article) async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in to save articles.')),
-      );
-      return;
-    }
-
-    final key = _articleKey(article);
-    if (_savedArticleKeys.contains(key)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Already saved.')));
-      return;
-    }
-
-    try {
-      final folderId = await _getOrCreateDefaultFolderId(user.id);
-      final payload = <String, dynamic>{
-        'user_id': user.id,
-        'folder_id': folderId,
-        'summary': article.summary,
-        'titles': <String>[article.title],
-        'sources': article.sources,
-        'urls': article.urls,
-        'image_url': article.imageUrl,
-      }..removeWhere((_, value) => value == null);
-
-      await Supabase.instance.client.from('saved_summaries').insert(payload);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _savedArticleKeys.add(key);
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Saved to bookmarks.')));
-    } on PostgrestException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: ${error.message}')),
-      );
-    } on FormatException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: ${error.message}')),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $error')),
-      );
-    }
-  }
-
-  Widget _buildArticleImage(Article article) {
-    final imageUrl = article.imageUrl?.trim() ?? '';
-    final imageUri = Uri.tryParse(imageUrl);
-    final hasValidImage =
-        imageUrl.isNotEmpty && imageUri != null && imageUri.hasScheme && imageUri.host.isNotEmpty;
-
-    if (!hasValidImage) {
-      return Container(
-        height: 180,
-        width: double.infinity,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Icon(
-          Icons.image_outlined,
-          size: 48,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+  Future<void> _openSummary(Article article) async {
+    final key     = _articleKey(article);
+    final isSaved = _savedArticleKeys.contains(key);
+    // Haptic pulse on tap
+    HapticFeedback.lightImpact();
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, anim, __) => SummaryScreen(
+          article: article,
+          initiallySaved: isSaved,
+          onSaved: () {
+            if (!mounted) return;
+            setState(() => _savedArticleKeys.add(key));
+          },
         ),
-      );
-    }
+        transitionsBuilder: (_, anim, __, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 420),
+      ),
+    );
+  }
 
-    return SizedBox(
-      height: 180,
-      width: double.infinity,
-      child: Image.network(
-        imageUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Container(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: Icon(
-            Icons.broken_image_outlined,
-            size: 48,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+  // ── Greeting helpers ───────────────────────────────────────────────────────
+
+  String _displayName() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return '';
+    final md = user.userMetadata;
+    if (md is Map<String, dynamic>) {
+      final fn = (md['full_name'] as String? ?? '').trim();
+      if (fn.isNotEmpty) return fn;
+      final n = (md['name'] as String? ?? '').trim();
+      if (n.isNotEmpty) return n;
+    }
+    final email = (user.email ?? '').trim();
+    return email.isEmpty ? '' : email.split('@').first;
+  }
+
+  String _greetingLabel() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  String _timeOfDayEmoji() {
+    final h = DateTime.now().hour;
+    if (h < 12) return '☀️';
+    if (h < 18) return '🌤️';
+    return '🌙';
+  }
+
+  // ── UI Builders ────────────────────────────────────────────────────────────
+
+  /// Full-screen immersive news card with image background + gradient overlay.
+  Widget _buildArticleCard(Article article, int pageIndex) {
+    final imageUrl  = article.imageUrl?.trim() ?? '';
+    final imageUri  = Uri.tryParse(imageUrl);
+    final hasImage  = imageUrl.isNotEmpty &&
+        imageUri != null && imageUri.hasScheme && imageUri.host.isNotEmpty;
+    final cs        = Theme.of(context).colorScheme;
+    final tt        = Theme.of(context).textTheme;
+    final topic     = article.sources.isNotEmpty ? article.sources.first : 'News';
+    final isDark    = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () => _openSummary(article),
+      child: AnimatedScale(
+        scale: _currentPage == pageIndex ? 1.0 : 0.94,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: isDark
+                    ? Colors.black.withOpacity(0.5)
+                    : AnonaColors.textPrimary.withOpacity(0.12),
+                blurRadius: 32,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                // ── Background image ──────────────────────────────────────
+                if (hasImage)
+                  Image.network(
+                    imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _buildFallbackBg(cs),
+                    loadingBuilder: (ctx, child, progress) =>
+                        progress == null ? child : _buildFallbackBg(cs),
+                  )
+                else
+                  _buildFallbackBg(cs),
+
+                // ── Gradient overlay ──────────────────────────────────────
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      stops: const [0.0, 0.35, 0.75, 1.0],
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.05),
+                        Colors.black.withOpacity(0.55),
+                        Colors.black.withOpacity(0.88),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Content ───────────────────────────────────────────────
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 24,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      // Category pill
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          topic.toUpperCase(),
+                          style: tt.labelSmall?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Headline
+                      Text(
+                        article.title,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: tt.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          height: 1.2,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Tap ripple ────────────────────────────────────────────
+                Positioned.fill(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _openSummary(article),
+                      borderRadius: BorderRadius.circular(28),
+                      splashColor: Colors.white.withOpacity(0.08),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) {
-            return child;
+      ),
+    );
+  }
+
+  Widget _buildFallbackBg(ColorScheme cs) {
+    return Container(
+      color: cs.surfaceContainerHighest,
+      child: Center(
+        child: Icon(
+          Icons.article_outlined,
+          size: 64,
+          color: cs.onSurfaceVariant.withOpacity(0.3),
+        ),
+      ),
+    );
+  }
+
+  /// Dashboard card for Stocks (full-screen, green branding).
+  Widget _buildMarketCardSection(int pageIndex) {
+    if (_isMarketLoading && _marketSnapshot.isEmpty) {
+      return _buildDashboardSkeleton(AnonaColors.moneyGreen);
+    }
+    if (_marketSnapshot.isEmpty) return const SizedBox.shrink();
+    return AnimatedScale(
+      scale: _currentPage == pageIndex ? 1.0 : 0.94,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: StockWatchlistCard(items: _marketSnapshot),
+      ),
+    );
+  }
+
+  /// Dashboard card for Sports (full-screen, navy branding).
+  Widget _buildSportsCardSection(int pageIndex) {
+    if (_isSportsLoading && _sportsScoreboard == null) {
+      return _buildDashboardSkeleton(AnonaColors.primeNavy);
+    }
+    if (_sportsScoreboard == null) return const SizedBox.shrink();
+    return AnimatedScale(
+      scale: _currentPage == pageIndex ? 1.0 : 0.94,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: SportsScoreboardCard(
+          scoreboard: _sportsScoreboard,
+          isLoading: _isSportsLoading,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboardSkeleton(Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeck({required bool showStocks, required bool showSports}) {
+    final count = _articles.length +
+        (showStocks ? 1 : 0) +
+        (showSports ? 1 : 0);
+
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * 0.62,
+      child: PageView.builder(
+        controller: _pageController,
+        itemCount: count,
+        itemBuilder: (BuildContext context, int index) {
+          if (index < _articles.length) {
+            return _buildArticleCard(_articles[index], index);
           }
-          return Container(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            alignment: Alignment.center,
-            child: const CircularProgressIndicator(),
-          );
+          if (showStocks && index == _articles.length) {
+            return _buildMarketCardSection(index);
+          }
+          if (showSports && index == _articles.length + (showStocks ? 1 : 0)) {
+            return _buildSportsCardSection(index);
+          }
+          return const SizedBox.shrink();
         },
       ),
     );
   }
 
-  String _displayName() {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
-      return '';
-    }
-    final metadata = user.userMetadata;
-    if (metadata is Map<String, dynamic>) {
-      final fullName = (metadata['full_name'] as String? ?? '').trim();
-      if (fullName.isNotEmpty) {
-        return fullName;
-      }
-      final name = (metadata['name'] as String? ?? '').trim();
-      if (name.isNotEmpty) {
-        return name;
-      }
-    }
-    final email = (user.email ?? '').trim();
-    if (email.isEmpty) {
-      return '';
-    }
-    return email.split('@').first;
-  }
-
-  String _greetingLabel() {
-    final hour = DateTime.now().hour;
-    if (hour < 12) {
-      return 'Good morning';
-    }
-    if (hour < 18) {
-      return 'Good afternoon';
-    }
-    return 'Good evening';
-  }
-
-  Widget _buildMarketCardSection() {
-    if (_isMarketLoading && _marketSnapshot.isEmpty) {
-      return Container(
-        width: double.infinity,
-        height: 220,
-        decoration: BoxDecoration(
-          color: const Color(0xFF136844),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: const Center(
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            color: Colors.white,
+  Widget _buildPageDots(int totalCount) {
+    if (totalCount <= 1) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(totalCount, (i) {
+        final isActive = i == _currentPage;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: isActive ? 20 : 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: isActive
+                ? cs.primary
+                : cs.onSurface.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(100),
           ),
-        ),
-      );
-    }
-
-    if (_marketSnapshot.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return StockWatchlistCard(items: _marketSnapshot);
-  }
-
-  Widget _buildSportsCardSection() {
-    if (_isSportsLoading && _sportsScoreboard == null) {
-      return const SportsScoreboardCard(scoreboard: null, isLoading: true);
-    }
-
-    if (_sportsScoreboard == null) {
-      return const SizedBox.shrink();
-    }
-
-    return SportsScoreboardCard(
-      scoreboard: _sportsScoreboard,
-      isLoading: _isSportsLoading,
+        );
+      }),
     );
   }
 
-  Widget _buildArticleCard(Article article, bool isSaved) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      clipBehavior: Clip.antiAlias,
+  Widget _buildLoadingState() {
+    return SliverFillRemaining(
+      hasScrollBody: false,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _buildArticleImage(article),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  article.title,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Text(_sourceSubtitle(article)),
-                const SizedBox(height: 8),
-                Text(article.summary),
-                const SizedBox(height: 8),
-                Row(
-                  children: <Widget>[
-                    TextButton(
-                      onPressed: () => _showDeepDive(article),
-                      child: const Text('Deep Dive'),
-                    ),
-                    TextButton(
-                      onPressed: () => _showReadOriginalSheet(article),
-                      child: const Text('Read Original'),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => _saveArticle(article),
-                      icon: Icon(
-                        isSaved ? Icons.bookmark : Icons.bookmark_border,
-                      ),
-                      tooltip: isSaved ? 'Saved' : 'Save',
-                    ),
-                  ],
-                ),
-              ],
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(strokeWidth: 2),
+          const SizedBox(height: 16),
+          Text(
+            'Curating your briefing…',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.newspaper_outlined, size: 64, color: cs.onSurfaceVariant),
+          const SizedBox(height: 16),
+          Text('No content available right now.', style: tt.titleMedium),
+          const SizedBox(height: 8),
+          Text(
+            'Pull down to refresh',
+            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
       ),
@@ -639,66 +550,101 @@ class _HomeScreenState extends State<HomeScreen> {
     final displayName = _displayName();
     final greeting = displayName.isEmpty
         ? _greetingLabel()
-        : '${_greetingLabel()}, $displayName';
+        : '${_greetingLabel()}, ${displayName.split(' ').first}';
+    final showStocks = _isMarketLoading || _marketSnapshot.isNotEmpty;
+    final showSports = _isSportsLoading || _sportsScoreboard != null;
+    final hasAny     = _articles.isNotEmpty || showStocks || showSports;
+    final totalCount = _articles.length +
+        (showStocks ? 1 : 0) +
+        (showSports ? 1 : 0);
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
 
-    return Stack(
-      children: <Widget>[
-        Positioned.fill(
-          child: CustomScrollView(
-            slivers: <Widget>[
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+    return RefreshIndicator(
+      onRefresh: () async {
+        await Future.wait([
+          _fetchDailyDigest(),
+          _fetchMarketSnapshot(),
+          _fetchSportsScoreboard(),
+        ]);
+      },
+      color: cs.primary,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: <Widget>[
+          // ── Greeting header ────────────────────────────────────────────
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: FadeTransition(
+                opacity: _greetingFade,
+                child: SlideTransition(
+                  position: _greetingSlide,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
+                      Row(
+                        children: [
+                          Text(
+                            _timeOfDayEmoji(),
+                            style: const TextStyle(fontSize: 22),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Anona',
+                            style: tt.labelMedium?.copyWith(
+                              color: cs.primary,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
                       Text(
                         greeting,
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: tt.displaySmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          height: 1.1,
+                        ),
                       ),
-                      const SizedBox(height: 10),
-                      _buildMarketCardSection(),
-                      const SizedBox(height: 10),
-                      _buildSportsCardSection(),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Your one-and-done morning briefing',
+                        style: tt.bodyMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-               ),
-              if (_isLoading)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_articles.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: Text('No daily digest available right now.')),
-                )
-              else
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (BuildContext context, int index) {
-                      final article = _articles[index];
-                      final isSaved = _savedArticleKeys.contains(_articleKey(article));
-                      return _buildArticleCard(article, isSaved);
-                    },
-                    childCount: _articles.length,
-                  ),
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 12)),
-            ],
-          ),
-        ),
-        if (_isDeepDiveLoading)
-          const Positioned.fill(
-            child: Stack(
-              children: <Widget>[
-                ModalBarrier(dismissible: false, color: Color(0x55000000)),
-                Center(child: CircularProgressIndicator()),
-              ],
+              ),
             ),
           ),
-      ],
+
+          // ── Deck / loading / empty ─────────────────────────────────────
+          if (_isLoading && !hasAny)
+            _buildLoadingState()
+          else if (!hasAny)
+            _buildEmptyState()
+          else ...[
+            SliverToBoxAdapter(
+              child: _buildDeck(showStocks: showStocks, showSports: showSports),
+            ),
+
+            // ── Page indicator dots ──────────────────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: _buildPageDots(totalCount),
+              ),
+            ),
+          ],
+
+          // Bottom breathing room
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ],
+      ),
     );
   }
 }

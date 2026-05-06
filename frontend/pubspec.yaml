@@ -19,6 +19,7 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.3.0
   flutter_tts: ^4.2.2
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:

@@ -5,6 +5,7 @@ class Article {
     required this.urls,
     required this.summary,
     this.imageUrl,
+    this.publishedAt,
   });
 
   final String title;
@@ -12,6 +13,7 @@ class Article {
   final List<String> urls;
   final String summary;
   final String? imageUrl;
+  final String? publishedAt;
 
   factory Article.fromJson(Map<String, dynamic> json) {
     return Article(
@@ -20,6 +22,9 @@ class Article {
       urls: _parseStringList(json['urls'] ?? json['url']),
       summary: json['summary'] as String? ?? '',
       imageUrl: _parseOptionalString(json['image_url'] ?? json['imageUrl']),
+      publishedAt: _parseOptionalString(
+        json['published_at'] ?? json['publishedAt'] ?? json['date'],
+      ),
     );
   }
 
