@@ -24,6 +24,16 @@ class AnonaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return const _AppRoot();
+  }
+}
+
+class _AppRoot extends ConsumerWidget {
+  const _AppRoot();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appRouter = ref.watch(appRouterProvider);
     return MaterialApp.router(
       title: 'Anona',
       theme: AppTheme.getLightTheme(),
