@@ -5,4 +5,3 @@ supabase
 google-generativeai
 requests
 trafilatura
-
