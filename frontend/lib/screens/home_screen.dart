@@ -3,7 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/article.dart';
+import '../models/market_snapshot_item.dart';
+import '../models/sports_scoreboard.dart';
 import '../services/api_service.dart';
+import '../widgets/stock_watchlist_card.dart';
+import '../widgets/sports_scoreboard_card.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,17 +20,22 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = const ApiService();
 
   List<Article> _articles = <Article>[];
+  List<MarketSnapshotItem> _marketSnapshot = <MarketSnapshotItem>[];
+  SportsScoreboard? _sportsScoreboard;
   final Set<String> _savedArticleKeys = <String>{};
   bool _isLoading = false;
+  bool _isMarketLoading = false;
+  bool _isSportsLoading = false;
   bool _isDeepDiveLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _isLoading = true;
     _loadSavedArticleKeys();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchDailyDigest();
+      _fetchMarketSnapshot();
+      _fetchSportsScoreboard();
     });
   }
 
@@ -63,6 +72,66 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchMarketSnapshot() async {
+    setState(() {
+      _isMarketLoading = true;
+    });
+
+    try {
+      final marketSnapshot = await _apiService.fetchMarketSnapshot();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _marketSnapshot = marketSnapshot;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load market snapshot: $error')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isMarketLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchSportsScoreboard() async {
+    setState(() {
+      _isSportsLoading = true;
+    });
+
+    try {
+      final scoreboard = await _apiService.fetchSportsScoreboard();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _sportsScoreboard = scoreboard;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load sports scoreboard: $error')),
+      );
+    } finally {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSportsLoading = false;
       });
     }
   }
@@ -441,73 +510,185 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    Widget body;
-    if (_isLoading) {
-      body = const Center(child: CircularProgressIndicator());
-    } else if (_articles.isEmpty) {
-      body = const Center(child: Text('No daily digest available right now.'));
-    } else {
-      body = ListView.builder(
-        itemCount: _articles.length,
-        itemBuilder: (BuildContext context, int index) {
-          final article = _articles[index];
-          final isSaved = _savedArticleKeys.contains(_articleKey(article));
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            clipBehavior: Clip.antiAlias,
+  String _displayName() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      return '';
+    }
+    final metadata = user.userMetadata;
+    if (metadata is Map<String, dynamic>) {
+      final fullName = (metadata['full_name'] as String? ?? '').trim();
+      if (fullName.isNotEmpty) {
+        return fullName;
+      }
+      final name = (metadata['name'] as String? ?? '').trim();
+      if (name.isNotEmpty) {
+        return name;
+      }
+    }
+    final email = (user.email ?? '').trim();
+    if (email.isEmpty) {
+      return '';
+    }
+    return email.split('@').first;
+  }
+
+  String _greetingLabel() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Good morning';
+    }
+    if (hour < 18) {
+      return 'Good afternoon';
+    }
+    return 'Good evening';
+  }
+
+  Widget _buildMarketCardSection() {
+    if (_isMarketLoading && _marketSnapshot.isEmpty) {
+      return Container(
+        width: double.infinity,
+        height: 220,
+        decoration: BoxDecoration(
+          color: const Color(0xFF136844),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
+    if (_marketSnapshot.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return StockWatchlistCard(items: _marketSnapshot);
+  }
+
+  Widget _buildSportsCardSection() {
+    if (_isSportsLoading && _sportsScoreboard == null) {
+      return const SportsScoreboardCard(scoreboard: null, isLoading: true);
+    }
+
+    if (_sportsScoreboard == null) {
+      return const SizedBox.shrink();
+    }
+
+    return SportsScoreboardCard(
+      scoreboard: _sportsScoreboard,
+      isLoading: _isSportsLoading,
+    );
+  }
+
+  Widget _buildArticleCard(Article article, bool isSaved) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildArticleImage(article),
+          Padding(
+            padding: const EdgeInsets.all(12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                _buildArticleImage(article),
-                Padding(
-                  padding: const EdgeInsets.all(12),
+                Text(
+                  article.title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(_sourceSubtitle(article)),
+                const SizedBox(height: 8),
+                Text(article.summary),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    TextButton(
+                      onPressed: () => _showDeepDive(article),
+                      child: const Text('Deep Dive'),
+                    ),
+                    TextButton(
+                      onPressed: () => _showReadOriginalSheet(article),
+                      child: const Text('Read Original'),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => _saveArticle(article),
+                      icon: Icon(
+                        isSaved ? Icons.bookmark : Icons.bookmark_border,
+                      ),
+                      tooltip: isSaved ? 'Saved' : 'Save',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = _displayName();
+    final greeting = displayName.isEmpty
+        ? _greetingLabel()
+        : '${_greetingLabel()}, $displayName';
+
+    return Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: CustomScrollView(
+            slivers: <Widget>[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        article.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        greeting,
+                        style: Theme.of(context).textTheme.headlineSmall,
                       ),
-                      const SizedBox(height: 4),
-                      Text(_sourceSubtitle(article)),
-                      const SizedBox(height: 8),
-                      Text(article.summary),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: <Widget>[
-                          TextButton(
-                            onPressed: () => _showDeepDive(article),
-                            child: const Text('Deep Dive'),
-                          ),
-                          TextButton(
-                            onPressed: () => _showReadOriginalSheet(article),
-                            child: const Text('Read Original'),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: () => _saveArticle(article),
-                            icon: Icon(
-                              isSaved ? Icons.bookmark : Icons.bookmark_border,
-                            ),
-                            tooltip: isSaved ? 'Saved' : 'Save',
-                          ),
-                        ],
-                      ),
+                      const SizedBox(height: 10),
+                      _buildMarketCardSection(),
+                      const SizedBox(height: 10),
+                      _buildSportsCardSection(),
                     ],
                   ),
                 ),
-              ],
-            ),
-          );
-        },
-      );
-    }
-
-    return Stack(
-      children: <Widget>[
-        Positioned.fill(child: body),
+               ),
+              if (_isLoading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_articles.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: Text('No daily digest available right now.')),
+                )
+              else
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (BuildContext context, int index) {
+                      final article = _articles[index];
+                      final isSaved = _savedArticleKeys.contains(_articleKey(article));
+                      return _buildArticleCard(article, isSaved);
+                    },
+                    childCount: _articles.length,
+                  ),
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 12)),
+            ],
+          ),
+        ),
         if (_isDeepDiveLoading)
           const Positioned.fill(
             child: Stack(

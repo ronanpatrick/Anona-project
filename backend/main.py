@@ -5,8 +5,10 @@ import re
 from datetime import datetime, timezone
 from typing import Literal
 
+import requests
 import trafilatura
 import uvicorn
+import yfinance as yf
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -65,6 +67,57 @@ class DigestResponse(BaseModel):
 class DeepDiveResponse(BaseModel):
     url: str
     analysis: str
+
+
+class MarketSnapshotItem(BaseModel):
+    symbol: str
+    short_name: str
+    current_price: float
+    change_percent: float
+
+
+class SportsScoreboardGame(BaseModel):
+    sport: str
+    event_id: str
+    away_team: str
+    away_logo: str | None = None
+    away_score: str
+    home_team: str
+    home_logo: str | None = None
+    home_score: str
+    status: str
+    state: str
+    start_time: str | None = None
+
+
+_DEFAULT_MARKET_INDICES = ["^GSPC", "^DJI", "^IXIC"]
+_INDEX_SHORT_NAMES = {
+    "^GSPC": "S&P 500",
+    "^DJI": "Dow Jones",
+    "^IXIC": "Nasdaq Composite",
+}
+_SUPPORTED_SPORTS: dict[str, tuple[str, str]] = {
+    "nba": ("basketball", "nba"),
+    "nfl": ("football", "nfl"),
+    "mlb": ("baseball", "mlb"),
+    "nhl": ("hockey", "nhl"),
+}
+_SPORT_ALIASES = {
+    "basketball": "nba",
+    "nba": "nba",
+    "football": "nfl",
+    "nfl": "nfl",
+    "baseball": "mlb",
+    "mlb": "mlb",
+    "hockey": "nhl",
+    "nhl": "nhl",
+}
+_TEAM_SPORT_HINTS = {
+    "lakers": "nba",
+    "warriors": "nba",
+    "yankees": "mlb",
+    "red sox": "mlb",
+}
 
 
 _STORY_STOPWORDS = {
@@ -246,6 +299,342 @@ def _normalize_topic_terms(items: list[str] | None) -> list[str]:
         seen.add(term)
         deduped.append(term)
     return deduped
+
+
+def _normalize_stock_symbols(items: list[str] | None) -> list[str]:
+    if not items:
+        return []
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        raw = item.strip().upper()
+        if not raw:
+            continue
+        if not re.fullmatch(r"\^?[A-Z0-9.\-]{1,12}", raw):
+            continue
+        if raw in seen:
+            continue
+        seen.add(raw)
+        deduped.append(raw)
+    return deduped
+
+
+def _load_user_stock_tickers(user_id: str | None) -> list[str]:
+    if not user_id or not supabase_client:
+        return []
+    try:
+        row = (
+            supabase_client.table("user_preferences")
+            .select("stock_tickers")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        return []
+    data = getattr(row, "data", None)
+    if not isinstance(data, dict):
+        return []
+    stock_tickers = data.get("stock_tickers")
+    if not isinstance(stock_tickers, list):
+        return []
+    return _normalize_stock_symbols([item for item in stock_tickers if isinstance(item, str)])
+
+
+def _normalize_sport_key(value: str) -> str | None:
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    return _SPORT_ALIASES.get(normalized)
+
+
+def _normalize_team_token(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _load_user_sports_profile(user_id: str | None) -> tuple[list[str], list[str]]:
+    if not user_id or not supabase_client:
+        return (["nba", "nfl"], [])
+    try:
+        row = (
+            supabase_client.table("user_preferences")
+            .select("sports_teams")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        return (["nba", "nfl"], [])
+
+    data = getattr(row, "data", None)
+    if not isinstance(data, dict):
+        return (["nba", "nfl"], [])
+
+    raw_sports_teams = data.get("sports_teams")
+    if not isinstance(raw_sports_teams, list):
+        return (["nba", "nfl"], [])
+
+    sports: list[str] = []
+    seen_sports: set[str] = set()
+    favorite_teams: list[str] = []
+    seen_teams: set[str] = set()
+
+    for raw_item in raw_sports_teams:
+        if not isinstance(raw_item, str):
+            continue
+        item = raw_item.strip()
+        if not item:
+            continue
+
+        left, separator, right = item.partition(":")
+        if separator:
+            sport = _normalize_sport_key(left)
+            team_name = right.strip()
+            if sport and sport not in seen_sports:
+                seen_sports.add(sport)
+                sports.append(sport)
+            if team_name:
+                normalized_team = _normalize_team_token(team_name)
+                if normalized_team not in seen_teams:
+                    seen_teams.add(normalized_team)
+                    favorite_teams.append(team_name)
+            continue
+
+        sport = _normalize_sport_key(item)
+        if sport and sport not in seen_sports:
+            seen_sports.add(sport)
+            sports.append(sport)
+            continue
+
+        normalized_team = _normalize_team_token(item)
+        if normalized_team not in seen_teams:
+            seen_teams.add(normalized_team)
+            favorite_teams.append(item)
+        hinted_sport = _TEAM_SPORT_HINTS.get(normalized_team)
+        if hinted_sport and hinted_sport not in seen_sports:
+            seen_sports.add(hinted_sport)
+            sports.append(hinted_sport)
+
+    if not sports:
+        sports = ["nba", "nfl"]
+    return sports, favorite_teams
+
+
+def _coerce_float(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        normalized = value.strip().replace(",", "")
+        if not normalized:
+            return None
+        try:
+            number = float(normalized)
+        except ValueError:
+            return None
+    else:
+        return None
+    if number != number:
+        return None
+    return number
+
+
+def _mapping_lookup(mapping: object, keys: tuple[str, ...]) -> object:
+    if mapping is None:
+        return None
+    for key in keys:
+        value = None
+        if hasattr(mapping, "get"):
+            value = mapping.get(key)
+        elif isinstance(mapping, dict):
+            value = mapping.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _load_ticker_info(ticker: yf.Ticker) -> dict[str, object] | None:
+    try:
+        info = ticker.info
+    except Exception:
+        return None
+    if not isinstance(info, dict):
+        return None
+    return info
+
+
+def _resolve_market_short_name(symbol: str, info: dict[str, object] | None) -> str:
+    if symbol in _INDEX_SHORT_NAMES:
+        return _INDEX_SHORT_NAMES[symbol]
+    if isinstance(info, dict):
+        short_name = str(info.get("shortName") or info.get("longName") or "").strip()
+        if short_name:
+            return short_name
+    return symbol
+
+
+def _build_market_symbols(user_tickers: list[str]) -> list[str]:
+    combined = [*_DEFAULT_MARKET_INDICES, *user_tickers]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for symbol in combined:
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        deduped.append(symbol)
+    return deduped
+
+
+def _fetch_sports_games_for_league(sport: str) -> list[SportsScoreboardGame]:
+    sport_route = _SUPPORTED_SPORTS.get(sport)
+    if not sport_route:
+        return []
+
+    sport_name, league_name = sport_route
+    url = f"https://site.api.espn.com/apis/site/v2/sports/{sport_name}/{league_name}/scoreboard"
+    response = requests.get(url, timeout=settings.request_timeout_seconds)
+    response.raise_for_status()
+    payload = response.json()
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return []
+
+    games: list[SportsScoreboardGame] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        competition = None
+        competitions = event.get("competitions")
+        if isinstance(competitions, list) and competitions:
+            competition = competitions[0]
+        if not isinstance(competition, dict):
+            continue
+
+        competitors = competition.get("competitors")
+        if not isinstance(competitors, list) or not competitors:
+            continue
+
+        away_competitor = None
+        home_competitor = None
+        for competitor in competitors:
+            if not isinstance(competitor, dict):
+                continue
+            home_away = str(competitor.get("homeAway") or "").strip().lower()
+            if home_away == "away":
+                away_competitor = competitor
+            elif home_away == "home":
+                home_competitor = competitor
+
+        if away_competitor is None or home_competitor is None:
+            continue
+
+        away_team = away_competitor.get("team") if isinstance(away_competitor.get("team"), dict) else {}
+        home_team = home_competitor.get("team") if isinstance(home_competitor.get("team"), dict) else {}
+        event_status = event.get("status") if isinstance(event.get("status"), dict) else {}
+        status_type = event_status.get("type") if isinstance(event_status.get("type"), dict) else {}
+
+        detail_text = str(status_type.get("shortDetail") or status_type.get("detail") or "Scheduled").strip()
+        state_key = str(status_type.get("state") or "").strip().lower()
+        state = "upcoming"
+        if state_key == "in":
+            state = "live"
+        elif state_key == "post":
+            state = "final"
+
+        games.append(
+            SportsScoreboardGame(
+                sport=sport,
+                event_id=str(event.get("id") or "").strip(),
+                away_team=str(away_team.get("displayName") or away_team.get("shortDisplayName") or "").strip(),
+                away_logo=str(away_team.get("logo") or "").strip() or None,
+                away_score=str(away_competitor.get("score") or "0").strip(),
+                home_team=str(home_team.get("displayName") or home_team.get("shortDisplayName") or "").strip(),
+                home_logo=str(home_team.get("logo") or "").strip() or None,
+                home_score=str(home_competitor.get("score") or "0").strip(),
+                status=detail_text or "Scheduled",
+                state=state,
+                start_time=str(event.get("date") or "").strip() or None,
+            )
+        )
+
+    return games
+
+
+def _is_favorite_game(game: SportsScoreboardGame, favorite_teams: set[str]) -> bool:
+    if not favorite_teams:
+        return False
+    away_tokens = _normalize_team_token(game.away_team)
+    home_tokens = _normalize_team_token(game.home_team)
+    for team in favorite_teams:
+        if team and (team in away_tokens or team in home_tokens):
+            return True
+    return False
+
+
+def _fetch_market_snapshot_item(symbol: str) -> MarketSnapshotItem | None:
+    ticker = yf.Ticker(symbol)
+    fast_info = getattr(ticker, "fast_info", None)
+
+    current_price = _coerce_float(
+        _mapping_lookup(
+            fast_info,
+            ("lastPrice", "last_price", "regularMarketPrice", "regular_market_price"),
+        )
+    )
+    previous_close = _coerce_float(
+        _mapping_lookup(
+            fast_info,
+            (
+                "previousClose",
+                "previous_close",
+                "regularMarketPreviousClose",
+                "regular_market_previous_close",
+            ),
+        )
+    )
+
+    info: dict[str, object] | None = None
+    if current_price is None or previous_close is None or symbol not in _INDEX_SHORT_NAMES:
+        info = _load_ticker_info(ticker)
+
+    if current_price is None and isinstance(info, dict):
+        current_price = _coerce_float(
+            info.get("regularMarketPrice")
+            or info.get("currentPrice")
+            or info.get("navPrice")
+            or info.get("bid")
+        )
+    if previous_close is None and isinstance(info, dict):
+        previous_close = _coerce_float(
+            info.get("regularMarketPreviousClose")
+            or info.get("previousClose")
+            or info.get("navPreviousClose")
+        )
+
+    if current_price is None or previous_close is None:
+        history = ticker.history(period="5d", interval="1d", auto_adjust=False)
+        if not history.empty and "Close" in history:
+            close_values = [_coerce_float(value) for value in history["Close"].tolist()]
+            closes = [value for value in close_values if value is not None]
+            if current_price is None and closes:
+                current_price = closes[-1]
+            if previous_close is None:
+                if len(closes) >= 2:
+                    previous_close = closes[-2]
+                elif closes:
+                    previous_close = closes[-1]
+
+    if current_price is None or previous_close is None or previous_close == 0:
+        return None
+
+    change_percent = ((current_price - previous_close) / previous_close) * 100
+    return MarketSnapshotItem(
+        symbol=symbol,
+        short_name=_resolve_market_short_name(symbol, info),
+        current_price=current_price,
+        change_percent=change_percent,
+    )
 
 
 def _load_user_excluded_topics(user_id: str | None) -> list[str]:
@@ -722,6 +1111,80 @@ def get_discovery_news(
         raise cache_write_error
 
     return summaries
+
+
+@app.get("/get-market-snapshot", response_model=list[MarketSnapshotItem], tags=["market"])
+def get_market_snapshot(
+    authorization: str | None = Header(default=None),
+    user_id: str | None = Query(default=None),
+) -> list[MarketSnapshotItem]:
+    resolved_user_id = _resolve_digest_user_id(
+        request_user_id=None,
+        authorization=authorization,
+        query_user_id=user_id,
+    )
+    user_tickers = _load_user_stock_tickers(resolved_user_id)
+    symbols = _build_market_symbols(user_tickers)
+
+    snapshot: list[MarketSnapshotItem] = []
+    for symbol in symbols:
+        try:
+            item = _fetch_market_snapshot_item(symbol)
+        except Exception as exc:
+            if symbol in _DEFAULT_MARKET_INDICES:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Market snapshot fetch failed for {symbol}: {exc}",
+                ) from exc
+            continue
+        if item is not None:
+            snapshot.append(item)
+
+    if not snapshot:
+        raise HTTPException(status_code=503, detail="Unable to fetch market snapshot")
+
+    return snapshot
+
+
+@app.get("/get-sports-scoreboard", response_model=dict[str, list[SportsScoreboardGame]], tags=["sports"])
+def get_sports_scoreboard(
+    authorization: str | None = Header(default=None),
+    user_id: str | None = Query(default=None),
+) -> dict[str, list[SportsScoreboardGame]]:
+    resolved_user_id = _resolve_digest_user_id(
+        request_user_id=None,
+        authorization=authorization,
+        query_user_id=user_id,
+    )
+    selected_sports, favorite_teams = _load_user_sports_profile(resolved_user_id)
+    favorite_tokens = {_normalize_team_token(team) for team in favorite_teams if team.strip()}
+
+    response: dict[str, list[SportsScoreboardGame]] = {"your_teams": []}
+    your_team_ids: set[str] = set()
+    successful_fetches = 0
+
+    for sport in selected_sports:
+        if sport not in _SUPPORTED_SPORTS:
+            continue
+        try:
+            games = _fetch_sports_games_for_league(sport)
+        except requests.RequestException:
+            response[sport] = []
+            continue
+        successful_fetches += 1
+        response[sport] = games
+        for game in games:
+            game_id = f"{game.sport}:{game.event_id}"
+            if game_id in your_team_ids:
+                continue
+            if _is_favorite_game(game, favorite_tokens):
+                your_team_ids.add(game_id)
+                response["your_teams"].append(game)
+
+    if successful_fetches == 0:
+        raise HTTPException(status_code=503, detail="Unable to fetch sports scoreboard")
+
+    return response
 
 
 if __name__ == "__main__":

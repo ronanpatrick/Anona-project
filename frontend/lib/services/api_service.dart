@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/article.dart';
+import '../models/market_snapshot_item.dart';
+import '../models/sports_scoreboard.dart';
 import 'platform_info_stub.dart'
     if (dart.library.io) 'platform_info_io.dart' as platform_info;
 
@@ -165,5 +167,64 @@ class ApiService {
           return Article.fromJson(item);
         })
         .toList(growable: false);
+  }
+
+  Future<List<MarketSnapshotItem>> fetchMarketSnapshot() async {
+    final userId = _currentUserId;
+    final baseUri = Uri.parse('$_baseUrl/get-market-snapshot');
+    final uri = userId == null
+        ? baseUri
+        : baseUri.replace(queryParameters: <String, String>{'user_id': userId});
+
+    final response = await http.get(uri, headers: _authHeaders());
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Failed to fetch market snapshot '
+        '(${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) {
+      throw const FormatException(
+        'Invalid response format: expected market snapshot list.',
+      );
+    }
+
+    return decoded
+        .map((item) {
+          if (item is! Map<String, dynamic>) {
+            throw const FormatException(
+              'Invalid market item format: expected JSON object.',
+            );
+          }
+          return MarketSnapshotItem.fromJson(item);
+        })
+        .toList(growable: false);
+  }
+
+  Future<SportsScoreboard> fetchSportsScoreboard() async {
+    final userId = _currentUserId;
+    final baseUri = Uri.parse('$_baseUrl/get-sports-scoreboard');
+    final uri = userId == null
+        ? baseUri
+        : baseUri.replace(queryParameters: <String, String>{'user_id': userId});
+
+    final response = await http.get(uri, headers: _authHeaders());
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Failed to fetch sports scoreboard '
+        '(${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException(
+        'Invalid response format: expected sports scoreboard object.',
+      );
+    }
+
+    return SportsScoreboard.fromJson(decoded);
   }
 }

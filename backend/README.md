@@ -20,6 +20,7 @@ The Anona backend is a FastAPI server that fetches, scrapes, and intelligently s
    - `python-dotenv` - Environment variable management
    - `requests` - HTTP client for news APIs
    - `trafilatura` - Web scraping for full article text
+   - `yfinance` - Live stock and index pricing data
    - `google-generativeai` - Gemini API client
    - `supabase` - Supabase client (for future user verification)
 
@@ -177,6 +178,71 @@ Discovery results are cached per `user_id` and UTC date (`YYYY-MM-DD`) in `daily
 **Example:**
 ```bash
 curl "http://localhost:8000/get-discovery-news?tone=Friendly&limit=5&country=gb"
+```
+
+---
+
+### Live Market Snapshot
+
+**GET** `/get-market-snapshot`
+
+Fetches live market data on every request (no Supabase caching) for:
+- Default indices: `^GSPC` (S&P 500), `^DJI` (Dow Jones), `^IXIC` (Nasdaq Composite)
+- User-saved `stock_tickers` from `user_preferences`
+
+Authentication should be sent as `Authorization: Bearer <access_token>`; `user_id` query param is optional fallback.
+
+**Response:**
+```json
+[
+  {
+    "symbol": "^GSPC",
+    "short_name": "S&P 500",
+    "current_price": 5302.11,
+    "change_percent": 0.42
+  }
+]
+```
+
+**Example:**
+```bash
+curl "http://localhost:8000/get-market-snapshot"
+```
+
+---
+
+### Unified Sports Scoreboard
+
+**GET** `/get-sports-scoreboard`
+
+Fetches a unified multi-sport scoreboard in one response. The endpoint resolves the user from Bearer token (or `user_id` fallback), loads their sports preferences, then returns grouped games by sport plus a cross-sport `your_teams` section.
+
+**Response:**
+```json
+{
+  "your_teams": [
+    {
+      "sport": "nba",
+      "event_id": "401705123",
+      "away_team": "Los Angeles Lakers",
+      "away_logo": "https://...",
+      "away_score": "108",
+      "home_team": "Golden State Warriors",
+      "home_logo": "https://...",
+      "home_score": "111",
+      "status": "Q4 02:11",
+      "state": "live",
+      "start_time": "2026-05-07T02:00Z"
+    }
+  ],
+  "nba": [],
+  "nfl": []
+}
+```
+
+**Example:**
+```bash
+curl "http://localhost:8000/get-sports-scoreboard"
 ```
 
 ---
