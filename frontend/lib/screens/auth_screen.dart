@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
@@ -56,7 +55,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (!mounted) {
         return;
       }
-      context.go('/');
     } on AuthException catch (error) {
       setState(() => _error = error.message);
     } catch (_) {

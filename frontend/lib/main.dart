@@ -3,7 +3,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'router/app_router.dart';
+import 'screens/auth_screen.dart';
+import 'screens/main_scaffold.dart';
+import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -28,18 +30,97 @@ class AnonaApp extends StatelessWidget {
   }
 }
 
-class _AppRoot extends ConsumerWidget {
+class _AppRoot extends StatelessWidget {
   const _AppRoot();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final appRouter = ref.watch(appRouterProvider);
-    return MaterialApp.router(
+  Widget build(BuildContext context) {
+    final client = Supabase.instance.client;
+    return MaterialApp(
       title: 'Anona',
       theme: AppTheme.getLightTheme(),
       darkTheme: AppTheme.getDarkTheme(),
       themeMode: ThemeMode.system,
-      routerConfig: appRouter,
+      home: StreamBuilder<AuthState>(
+        stream: client.auth.onAuthStateChange,
+        initialData: AuthState(AuthChangeEvent.initialSession, client.auth.currentSession),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final session = snapshot.data?.session;
+          if (session != null) {
+            return _OnboardingGate(userId: session.user.id);
+          }
+          return const AuthScreen();
+        },
+      ),
+    );
+  }
+}
+
+class _OnboardingGate extends StatefulWidget {
+  const _OnboardingGate({required this.userId});
+
+  final String userId;
+
+  @override
+  State<_OnboardingGate> createState() => _OnboardingGateState();
+}
+
+class _OnboardingGateState extends State<_OnboardingGate> {
+  late Future<bool> _hasPreferencesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasPreferencesFuture = _hasUserPreferences();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OnboardingGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) {
+      _hasPreferencesFuture = _hasUserPreferences();
+    }
+  }
+
+  Future<bool> _hasUserPreferences() async {
+    final row = await Supabase.instance.client
+        .from('user_preferences')
+        .select('id')
+        .eq('id', widget.userId)
+        .maybeSingle();
+    return row != null;
+  }
+
+  void _refreshAfterOnboarding() {
+    setState(() {
+      _hasPreferencesFuture = _hasUserPreferences();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _hasPreferencesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return const AuthScreen();
+        }
+        if (snapshot.data == true) {
+          return const MainScaffold();
+        }
+        return OnboardingScreen(onCompleted: _refreshAfterOnboarding);
+      },
     );
   }
 }

@@ -17,6 +17,7 @@ class NewsArticle:
     source: str
     description: str = ""
     published_at: str = ""
+    image_url: str = ""
 
 
 class NewsService:
@@ -41,22 +42,19 @@ class NewsService:
         exclude_topics = [item.strip().lower() for item in (exclude_topics or []) if item]
 
         combined: list[NewsArticle] = []
-        provider_errors: list[str] = []
         if self.settings.newsdata_api_key:
             try:
                 combined.extend(self._fetch_newsdata(query_topics, country, limit))
-            except requests.RequestException as exc:
-                provider_errors.append(f"NewsData error: {exc}")
+            except requests.RequestException:
+                pass
         if self.settings.newsapi_api_key:
             try:
                 combined.extend(self._fetch_newsapi(query_topics, country, limit))
-            except requests.RequestException as exc:
-                provider_errors.append(f"NewsAPI error: {exc}")
+            except requests.RequestException:
+                pass
 
         if not combined:
-            if provider_errors:
-                raise RuntimeError("; ".join(provider_errors))
-            raise RuntimeError("No articles returned by news providers")
+            return []
 
         deduped = self._dedupe_by_url(combined)
         filtered = self._exclude_topics(deduped, exclude_topics)
@@ -77,16 +75,20 @@ class NewsService:
                 continue
             seen.add(url)
 
-            page = trafilatura.fetch_url(url, timeout=self.timeout)
-            if not page:
+            try:
+                page = trafilatura.fetch_url(url)
+                if not page:
+                    continue
+
+                extracted = trafilatura.extract(
+                    page,
+                    include_comments=False,
+                    include_tables=False,
+                    favor_precision=True,
+                )
+            except Exception:
                 continue
 
-            extracted = trafilatura.extract(
-                page,
-                include_comments=False,
-                include_tables=False,
-                favor_precision=True,
-            )
             if not extracted:
                 continue
 
@@ -106,36 +108,52 @@ class NewsService:
         return flattened
 
     def _fetch_newsdata(self, topics: list[str], country: str, limit: int) -> list[NewsArticle]:
-        response = requests.get(
-            "https://newsdata.io/api/1/news",
-            params={
-                "apikey": self.settings.newsdata_api_key,
-                "q": " OR ".join(topics),
-                "country": country,
-                "language": "en",
-                "size": min(max(limit, 10), 50),
-            },
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("status") != "success":
+        articles: list[NewsArticle] = []
+        topics_to_search = [topic.strip() for topic in topics if topic and topic.strip()]
+        if not topics_to_search:
             return []
 
-        articles: list[NewsArticle] = []
-        for item in payload.get("results", []):
-            url = (item.get("link") or "").strip()
-            if not url:
-                continue
-            articles.append(
-                NewsArticle(
-                    title=(item.get("title") or "Untitled").strip(),
-                    url=url,
-                    source=(item.get("source_id") or "NewsData").strip(),
-                    description=(item.get("description") or "").strip(),
-                    published_at=(item.get("pubDate") or "").strip(),
+        # NewsData free tier rejects larger sizes and can return 422 for malformed boolean query strings.
+        # Query each topic independently so requests handles URL encoding for each term safely.
+        size = min(max(limit, 1), 5)
+
+        for topic in topics_to_search:
+            try:
+                response = requests.get(
+                    "https://newsdata.io/api/1/news",
+                    params={
+                        "apikey": self.settings.newsdata_api_key,
+                        "q": topic,
+                        "country": country,
+                        "language": "en",
+                        "size": size,
+                    },
+                    timeout=self.timeout,
                 )
-            )
+                response.raise_for_status()
+                payload = response.json()
+            except requests.RequestException:
+                continue
+            except ValueError:
+                continue
+
+            if payload.get("status") != "success":
+                continue
+
+            for item in payload.get("results", []):
+                url = (item.get("link") or "").strip()
+                if not url:
+                    continue
+                articles.append(
+                    NewsArticle(
+                        title=(item.get("title") or "Untitled").strip(),
+                        url=url,
+                        source=(item.get("source_id") or "NewsData").strip(),
+                        description=(item.get("description") or "").strip(),
+                        published_at=(item.get("pubDate") or "").strip(),
+                        image_url=(item.get("image_url") or "").strip(),
+                    )
+                )
         return articles
 
     def _fetch_newsapi(self, topics: list[str], country: str, limit: int) -> list[NewsArticle]:
@@ -167,6 +185,7 @@ class NewsService:
                     source=(source.get("name") or "NewsAPI").strip(),
                     description=(item.get("description") or "").strip(),
                     published_at=(item.get("publishedAt") or "").strip(),
+                    image_url=(item.get("urlToImage") or "").strip(),
                 )
             )
         return articles

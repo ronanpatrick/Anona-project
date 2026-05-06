@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 enum SummaryTone {
   professional,
   casual,
-  explainLikeIm5;
+  bulletPointsOnly;
 
   String get dbValue {
     switch (this) {
@@ -11,8 +11,8 @@ enum SummaryTone {
         return 'professional';
       case SummaryTone.casual:
         return 'casual';
-      case SummaryTone.explainLikeIm5:
-        return 'explain_like_im_5';
+      case SummaryTone.bulletPointsOnly:
+        return 'bullet_points_only';
     }
   }
 
@@ -22,8 +22,8 @@ enum SummaryTone {
         return 'Professional';
       case SummaryTone.casual:
         return 'Casual';
-      case SummaryTone.explainLikeIm5:
-        return "Explain like I'm 5";
+      case SummaryTone.bulletPointsOnly:
+        return 'Bullet Points Only';
     }
   }
 }

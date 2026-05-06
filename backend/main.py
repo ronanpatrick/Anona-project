@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import re
 from typing import Literal
 
+import trafilatura
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,9 +49,10 @@ class DailyDigestRequest(BaseModel):
 
 class ArticleSummary(BaseModel):
     title: str
-    source: str
-    url: str
+    sources: list[str]
+    urls: list[str]
     summary: str
+    image_url: str | None = None
 
 
 class DigestResponse(BaseModel):
@@ -59,6 +63,34 @@ class DigestResponse(BaseModel):
 class DeepDiveResponse(BaseModel):
     url: str
     analysis: str
+
+
+_STORY_STOPWORDS = {
+    "after",
+    "amid",
+    "also",
+    "an",
+    "and",
+    "are",
+    "at",
+    "for",
+    "from",
+    "has",
+    "have",
+    "into",
+    "its",
+    "new",
+    "over",
+    "said",
+    "says",
+    "that",
+    "the",
+    "their",
+    "this",
+    "was",
+    "were",
+    "with",
+}
 
 
 def _verify_user_if_present(authorization: str | None) -> None:
@@ -77,32 +109,284 @@ def _verify_user_if_present(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="User verification failed")
 
 
+def _story_tokens(article: NewsArticle) -> set[str]:
+    haystack = f"{article.title} {article.description}".lower()
+    tokens = re.findall(r"[a-z0-9]+", haystack)
+    return {
+        token
+        for token in tokens
+        if len(token) >= 2 and token not in _STORY_STOPWORDS and not token.isdigit()
+    }
+
+
+def _derive_topics_from_articles(articles: list[NewsArticle], max_topics: int) -> list[str]:
+    token_counts: dict[str, int] = {}
+    for article in articles:
+        for token in _story_tokens(article):
+            token_counts[token] = token_counts.get(token, 0) + 1
+
+    ranked_tokens = sorted(token_counts.items(), key=lambda item: item[1], reverse=True)
+    derived = [token for token, _ in ranked_tokens[:max_topics]]
+    return derived or ["trending"]
+
+
+def _topic_tokens(topic: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", topic.lower()) if token not in _STORY_STOPWORDS}
+
+
+def _cluster_by_topics(
+    articles: list[NewsArticle],
+    topics: list[str],
+    max_clusters: int,
+    max_sources_per_cluster: int = 10,
+) -> list[tuple[str, list[NewsArticle]]]:
+    normalized_topics = [topic.strip() for topic in topics if topic and topic.strip()]
+    if not normalized_topics:
+        normalized_topics = _derive_topics_from_articles(articles, max_topics=max_clusters)
+
+    topic_token_map = {topic: _topic_tokens(topic) for topic in normalized_topics}
+    grouped: dict[str, list[NewsArticle]] = {topic: [] for topic in normalized_topics}
+
+    for article in articles:
+        article_tokens = _story_tokens(article)
+        best_topic: str | None = None
+        best_score = 0.0
+        for topic, tokens in topic_token_map.items():
+            if not tokens:
+                continue
+            score = float(len(article_tokens & tokens))
+            if score > best_score:
+                best_score = score
+                best_topic = topic
+
+        if best_topic:
+            grouped[best_topic].append(article)
+        elif len(normalized_topics) == 1:
+            grouped[normalized_topics[0]].append(article)
+        else:
+            smallest_topic = min(normalized_topics, key=lambda topic: len(grouped[topic]))
+            grouped[smallest_topic].append(article)
+
+    ranked_topics = sorted(normalized_topics, key=lambda topic: len(grouped[topic]), reverse=True)
+    selected_clusters: list[tuple[str, list[NewsArticle]]] = []
+    for topic in ranked_topics[:max_clusters]:
+        cluster_articles = grouped[topic]
+        deduped_articles: list[NewsArticle] = []
+        seen_urls: set[str] = set()
+        for article in cluster_articles:
+            normalized_url = article.url.strip().lower()
+            if not normalized_url or normalized_url in seen_urls:
+                continue
+            seen_urls.add(normalized_url)
+            deduped_articles.append(article)
+            if len(deduped_articles) >= max_sources_per_cluster:
+                break
+        if deduped_articles:
+            selected_clusters.append((topic, deduped_articles))
+    return selected_clusters
+
+
+async def _scrape_single_url(url: str, min_chars: int) -> tuple[str, str] | None:
+    try:
+        page = await asyncio.to_thread(trafilatura.fetch_url, url)
+        if not page:
+            return None
+        extracted = await asyncio.to_thread(
+            trafilatura.extract,
+            page,
+            include_comments=False,
+            include_tables=False,
+            favor_precision=True,
+        )
+    except Exception:
+        return None
+
+    if not extracted:
+        return None
+
+    cleaned = news_service.clean_text(extracted)[: settings.max_article_chars]
+    if len(cleaned) < min_chars:
+        return None
+    return url, cleaned
+
+
+async def _scrape_urls_parallel(
+    urls: list[str],
+    max_articles: int,
+    min_chars: int = 220,
+) -> list[dict[str, str]]:
+    unique_urls: list[str] = []
+    seen_urls: set[str] = set()
+    for raw_url in urls:
+        url = raw_url.strip()
+        normalized = url.lower()
+        if not url or normalized in seen_urls:
+            continue
+        seen_urls.add(normalized)
+        unique_urls.append(url)
+
+    semaphore = asyncio.Semaphore(10)
+
+    async def _bounded_scrape(url: str) -> tuple[str, str] | None:
+        async with semaphore:
+            return await _scrape_single_url(url, min_chars=min_chars)
+
+    raw_results = await asyncio.gather(*(_bounded_scrape(url) for url in unique_urls), return_exceptions=True)
+    scraped: list[dict[str, str]] = []
+    for item in raw_results:
+        if isinstance(item, Exception) or item is None:
+            continue
+        url, text = item
+        scraped.append({"url": url, "text": text})
+        if len(scraped) >= max_articles:
+            break
+    return scraped
+
+
+def _scrape_urls_parallel_bridge(
+    urls: list[str],
+    max_articles: int,
+    min_chars: int = 220,
+) -> list[dict[str, str]]:
+    return asyncio.run(_scrape_urls_parallel(urls=urls, max_articles=max_articles, min_chars=min_chars))
+
+
 def _build_summaries(
     articles: list[NewsArticle],
+    topics: list[str],
     tone: ToneType,
     limit: int,
 ) -> list[ArticleSummary]:
-    urls = [article.url for article in articles]
-    scraped = news_service.scrape_urls(urls, max_articles=limit)
+    clusters = _cluster_by_topics(
+        articles=articles,
+        topics=topics,
+        max_clusters=limit,
+        max_sources_per_cluster=10,
+    )
+    if not clusters:
+        return []
+
+    urls_to_scrape = [article.url for _, cluster in clusters for article in cluster]
+    scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape))
     scraped_by_url = {item["url"]: item["text"] for item in scraped}
 
     summaries: list[ArticleSummary] = []
-    for article in articles:
-        text = scraped_by_url.get(article.url)
-        if not text:
+    for topic_name, cluster in clusters:
+        candidates: list[dict[str, str]] = []
+        for article in cluster:
+            text = scraped_by_url.get(article.url)
+            if not text:
+                continue
+            candidates.append(
+                {
+                    "url": article.url,
+                    "title": article.title,
+                    "source": article.source.strip() or "Unknown",
+                    "image_url": article.image_url.strip(),
+                    "text": text,
+                }
+            )
+
+        reports: list[dict[str, str]] = []
+        seen_urls: set[str] = set()
+        seen_sources: set[str] = set()
+        for item in candidates:
+            normalized_url = item["url"].strip().lower()
+            normalized_source = item["source"].strip().lower()
+            if not normalized_url or normalized_url in seen_urls or normalized_source in seen_sources:
+                continue
+            seen_urls.add(normalized_url)
+            seen_sources.add(normalized_source)
+            reports.append(item)
+            if len(reports) >= 10:
+                break
+
+        if len(reports) < 10:
+            for item in candidates:
+                normalized_url = item["url"].strip().lower()
+                if not normalized_url or normalized_url in seen_urls:
+                    continue
+                seen_urls.add(normalized_url)
+                reports.append(item)
+                if len(reports) >= 10:
+                    break
+
+        if not reports:
             continue
-        summary = ai_service.summarize_text(text=text, tone=tone, bullet_count=5)
+
+        print(f"Grouping {topic_name}: found {len(reports)} articles for synthesis.")
+        summary = ai_service.synthesize_story(reports=reports, tone=tone)
+        sources: list[str] = []
+        source_seen: set[str] = set()
+        for report in reports:
+            source = report["source"].strip()
+            normalized_source = source.lower()
+            if not source or normalized_source in source_seen:
+                continue
+            source_seen.add(normalized_source)
+            sources.append(source)
+
+        urls: list[str] = []
+        url_seen: set[str] = set()
+        for report in reports:
+            url = report["url"].strip()
+            normalized_url = url.lower()
+            if not url or normalized_url in url_seen:
+                continue
+            url_seen.add(normalized_url)
+            urls.append(url)
+
+        if len(sources) < 2 and len(candidates) > len(reports):
+            for item in candidates:
+                source = item["source"].strip()
+                normalized_source = source.lower()
+                if not source or normalized_source in source_seen:
+                    continue
+                source_seen.add(normalized_source)
+                sources.append(source)
+                if len(sources) >= 2:
+                    break
+
+        image_url: str | None = None
+        for item in reports:
+            candidate_url = item.get("image_url", "").strip()
+            has_valid_scheme = candidate_url.startswith(("http://", "https://"))
+            if has_valid_scheme:
+                image_url = candidate_url
+                break
+        if image_url is None:
+            for item in candidates:
+                candidate_url = item.get("image_url", "").strip()
+                has_valid_scheme = candidate_url.startswith(("http://", "https://"))
+                if has_valid_scheme:
+                    image_url = candidate_url
+                    break
+
         summaries.append(
             ArticleSummary(
-                title=article.title,
-                source=article.source,
-                url=article.url,
+                title=cluster[0].title,
+                sources=sources,
+                urls=urls,
                 summary=summary,
+                image_url=image_url,
             )
         )
-        if len(summaries) >= limit:
-            break
     return summaries
+
+
+def _friendly_empty_digest() -> DigestResponse:
+    return DigestResponse(
+        articles=[
+            ArticleSummary(
+                title="No scrapeable articles right now",
+                sources=["Anona"],
+                urls=[],
+                summary="We could not scrape article content at the moment. Please try again shortly.",
+                image_url=None,
+            )
+        ],
+        count=1,
+    )
 
 
 @app.get("/health", tags=["health"])
@@ -123,15 +407,22 @@ def get_daily_digest(
         articles = news_service.fetch_news(
             topics=request.topics,
             country=request.country,
-            limit=max(request.limit * 3, 15),
+            limit=50,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     try:
-        summaries = _build_summaries(articles=articles, tone=request.tone, limit=min(5, request.limit))
+        summaries = _build_summaries(
+            articles=articles,
+            topics=request.topics,
+            tone=request.tone,
+            limit=request.limit,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
+    if not summaries:
+        return _friendly_empty_digest()
     return DigestResponse(articles=summaries, count=len(summaries))
 
 
@@ -148,7 +439,7 @@ def get_deep_dive(
         raise HTTPException(status_code=400, detail="Unable to scrape article content")
 
     try:
-        analysis = ai_service.deep_dive_summary(text=scraped[0]["text"], tone=tone)
+        analysis = ai_service.summarize_deep_dive(text=scraped[0]["text"], tone=tone)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
     return DeepDiveResponse(url=url, analysis=analysis)
@@ -168,7 +459,7 @@ def get_discovery_news(
         articles = news_service.fetch_news(
             topics=[],
             country=country,
-            limit=max(limit * 3, 15),
+            limit=50,
             exclude_topics=excluded_topics or [],
             discovery=True,
         )
@@ -176,9 +467,16 @@ def get_discovery_news(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     try:
-        summaries = _build_summaries(articles=articles, tone=tone, limit=min(5, limit))
+        summaries = _build_summaries(
+            articles=articles,
+            topics=[],
+            tone=tone,
+            limit=limit,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
+    if not summaries:
+        return _friendly_empty_digest()
     return DigestResponse(articles=summaries, count=len(summaries))
 
 
