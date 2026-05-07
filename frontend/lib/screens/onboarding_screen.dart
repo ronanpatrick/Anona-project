@@ -752,7 +752,7 @@ class _SportsTab extends ConsumerWidget {
                   child: Row(
                     children: [
                       if (isSelected) ...[  
-                        Icon(Icons.check_circle_rounded, color: AnonaColors.liveOrange, size: 16),
+                        const Icon(Icons.check_circle_rounded, color: AnonaColors.liveOrange, size: 16),
                         const SizedBox(width: 6),
                       ],
                       Expanded(

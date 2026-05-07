@@ -82,6 +82,13 @@ class NewsService:
     ) -> list[dict[str, str]]:
         scraped: list[dict[str, str]] = []
         seen: set[str] = set()
+        
+        # Robust User-Agent to avoid simple bot detection
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        }
 
         for raw_url in urls:
             url = raw_url.strip()
@@ -90,7 +97,18 @@ class NewsService:
             seen.add(url)
 
             try:
+                # Try trafilatura's fetch first (it has some internal smarts)
                 page = trafilatura.fetch_url(url)
+                
+                # If trafilatura fails, try a manual request with headers
+                if not page:
+                    print(f"DEBUG: trafilatura.fetch_url failed for {url}, trying requests fallback...")
+                    resp = requests.get(url, headers=headers, timeout=self.timeout, allow_redirects=True)
+                    if resp.status_code == 200:
+                        page = resp.text
+                    else:
+                        print(f"DEBUG: requests fallback also failed with status {resp.status_code}")
+
                 if not page:
                     continue
 
@@ -100,7 +118,8 @@ class NewsService:
                     include_tables=False,
                     favor_precision=True,
                 )
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Scraping error for {url}: {e}")
                 continue
 
             if not extracted:
@@ -108,6 +127,7 @@ class NewsService:
 
             cleaned = self.clean_text(extracted)[: self.settings.max_article_chars]
             if len(cleaned) < min_chars:
+                print(f"DEBUG: Scraped content too short ({len(cleaned)} chars) for {url}")
                 continue
 
             scraped.append({"url": url, "text": cleaned})

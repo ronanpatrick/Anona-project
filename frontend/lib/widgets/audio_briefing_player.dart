@@ -5,7 +5,6 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/settings_provider.dart';
-import '../theme/app_theme.dart';
 
 class AudioBriefingPlayer extends StatefulWidget {
   const AudioBriefingPlayer({

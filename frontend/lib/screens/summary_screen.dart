@@ -216,7 +216,10 @@ class _SummaryScreenState extends State<SummaryScreen>
 
     setState(() => _isDeepDiveLoading = true);
     try {
-      final analysis = await _apiService.fetchDeepDive(url);
+      final analysis = await _apiService.fetchDeepDive(
+        url,
+        fallbackText: widget.article.summary,
+      );
       if (!mounted) return;
       await _showDeepDiveSheet(analysis);
     } catch (error) {
@@ -298,10 +301,7 @@ class _SummaryScreenState extends State<SummaryScreen>
                     child: SingleChildScrollView(
                       controller: scrollCtrl,
                       padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
-                      child: SelectableText(
-                        analysis,
-                        style: tt.bodyLarge,
-                      ),
+                      child: _buildDeepDiveContent(analysis, cs, tt),
                     ),
                   ),
                 ],
@@ -310,6 +310,143 @@ class _SummaryScreenState extends State<SummaryScreen>
           ),
         ),
       ),
+    );
+  }
+
+  /// Renders the deep dive plain-text output with styled section headers,
+  /// clean bullet rows, and readable body paragraphs — no raw markdown visible.
+  Widget _buildDeepDiveContent(String text, ColorScheme cs, TextTheme tt) {
+    // Section header labels (ALL CAPS) produced by the updated prompt
+    const sectionLabels = {
+      'EXECUTIVE SUMMARY',
+      'KEY STATISTICS',
+      'DIRECT QUOTES',
+      'TERMS EXPLAINED',
+      'WHY IT MATTERS',
+      'WHAT TO WATCH',
+    };
+
+    // Regex to detect and strip any leading bullet-like characters
+    final bulletPrefixRe = RegExp(r'^[\-\*•·]+\s*');
+    bool isBulletLine(String s) => s.startsWith('- ') || s.startsWith('* ') ||
+        s.startsWith('• ') || s.startsWith('· ') ||
+        RegExp(r'^[•·]').hasMatch(s);
+
+    // ── First pass: group continuation lines into their bullet ─────────────
+    // Each entry is either a section label, a bullet string, or a plain paragraph.
+    final List<({String type, String content})> entries = [];
+    String? pendingBullet;
+
+    for (final raw in text.split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty) {
+        if (pendingBullet != null) {
+          entries.add((type: 'bullet', content: pendingBullet));
+          pendingBullet = null;
+        }
+        continue;
+      }
+
+      if (sectionLabels.contains(line)) {
+        if (pendingBullet != null) {
+          entries.add((type: 'bullet', content: pendingBullet));
+          pendingBullet = null;
+        }
+        entries.add((type: 'header', content: line));
+        continue;
+      }
+
+      if (isBulletLine(line)) {
+        if (pendingBullet != null) {
+          entries.add((type: 'bullet', content: pendingBullet));
+        }
+        // Strip all leading bullet chars + spaces
+        pendingBullet = line.replaceFirst(bulletPrefixRe, '').trim();
+        continue;
+      }
+
+      // Continuation or plain paragraph
+      if (pendingBullet != null) {
+        pendingBullet = '$pendingBullet $line';
+      } else {
+        entries.add((type: 'para', content: line));
+      }
+    }
+    if (pendingBullet != null) {
+      entries.add((type: 'bullet', content: pendingBullet));
+    }
+
+    // ── Second pass: build widgets ─────────────────────────────────────────
+    final widgets = <Widget>[];
+    bool firstSection = true;
+
+    for (final entry in entries) {
+      switch (entry.type) {
+        case 'header':
+          if (!firstSection) widgets.add(const SizedBox(height: 20));
+          firstSection = false;
+          widgets.add(
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                entry.content,
+                style: tt.labelMedium?.copyWith(
+                  color: cs.primary,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ),
+          );
+          widgets.add(const SizedBox(height: 10));
+
+        case 'bullet':
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 7),
+                    child: Container(
+                      width: 5, height: 5,
+                      decoration: BoxDecoration(
+                        color: cs.primary.withOpacity(0.7),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(entry.content,
+                        style: tt.bodyMedium?.copyWith(height: 1.5)),
+                  ),
+                ],
+              ),
+            ),
+          );
+
+        default: // 'para'
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                entry.content,
+                style: tt.bodyMedium?.copyWith(height: 1.6),
+              ),
+            ),
+          );
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
     );
   }
 
@@ -372,15 +509,13 @@ class _SummaryScreenState extends State<SummaryScreen>
           .eq('user_id', user.id);
 
       final keys = <String>{};
-      if (rows is List) {
-        for (final item in rows.whereType<Map<String, dynamic>>()) {
-          final urls = _parseStringList(item['urls']);
-          if (urls.isNotEmpty) { keys.add('url:${urls.first}'); continue; }
-          final t = _parseFirstTitle(item);
-          if (t.isNotEmpty) keys.add('title:$t');
-        }
+      for (final item in rows.whereType<Map<String, dynamic>>()) {
+        final urls = _parseStringList(item['urls']);
+        if (urls.isNotEmpty) { keys.add('url:${urls.first}'); continue; }
+        final t = _parseFirstTitle(item);
+        if (t.isNotEmpty) keys.add('title:$t');
       }
-
+    
       if (keys.contains(key)) {
         if (!mounted) return;
         setState(() => _isSaved = true);
@@ -504,53 +639,80 @@ class _SummaryScreenState extends State<SummaryScreen>
     final tt      = Theme.of(context).textTheme;
     final cs      = Theme.of(context).colorScheme;
 
-    // Parse bullet points if present
-    final lines = summary.split('\n');
-    final hasBullets = lines.any((l) => l.trim().startsWith('•') ||
-        l.trim().startsWith('-') || l.trim().startsWith('*'));
+    // Only '• ' (Unicode bullet, U+2022) signals intentional executive-tone bullets.
+    // The AI prompt for executive tone explicitly uses '• '. All other prefixes
+    // ('- ', '* ', etc.) are treated as prose to avoid misdetection.
+    final rawLines = summary.split('\n');
+    final hasBullets = rawLines.any((l) => l.trim().startsWith('• '));
 
-    if (hasBullets) {
+    if (!hasBullets) {
+      // ── Prose: join any single-newline-wrapped lines into paragraphs ─────
+      final paragraphs = summary
+          .split(RegExp(r'\n{2,}'))
+          .map((p) => p.replaceAll('\n', ' ').trim())
+          .where((p) => p.isNotEmpty)
+          .toList();
+
+      if (paragraphs.length <= 1) {
+        // Single block — just render as-is, replacing lone newlines with spaces
+        final clean = summary.replaceAll('\n', ' ').trim();
+        return Text(clean, style: tt.bodyLarge?.copyWith(height: 1.65));
+      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: lines.where((l) => l.trim().isNotEmpty).map((line) {
-          final trimmed = line.trim();
-          final isBullet = trimmed.startsWith('•') ||
-              trimmed.startsWith('-') || trimmed.startsWith('*');
-          if (isBullet) {
-            final text = trimmed.substring(1).trim();
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: cs.primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(text, style: tt.bodyLarge),
-                  ),
-                ],
-              ),
-            );
-          }
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(trimmed, style: tt.bodyLarge),
-          );
-        }).toList(),
+        children: paragraphs.map((p) => Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Text(p, style: tt.bodyLarge?.copyWith(height: 1.65)),
+        )).toList(),
       );
     }
 
-    return Text(summary, style: tt.bodyLarge);
+    // ── Executive bullet list ─────────────────────────────────────────────
+    // Group continuation lines (lines without '• ' prefix) into their bullet.
+    final List<String> bulletItems = [];
+    String? pending;
+
+    for (final raw in rawLines) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+
+      if (line.startsWith('• ')) {
+        if (pending != null) bulletItems.add(pending);
+        pending = line.substring(2).trim(); // strip '• '
+      } else if (pending != null) {
+        pending = '$pending $line'; // join continuation
+      } else {
+        bulletItems.add(line); // pre-bullet text
+      }
+    }
+    if (pending != null) bulletItems.add(pending);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: bulletItems.map((item) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 7),
+              child: Container(
+                width: 5,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(item, style: tt.bodyLarge?.copyWith(height: 1.55)),
+            ),
+          ],
+        ),
+      )).toList(),
+    );
   }
 
   @override

@@ -122,7 +122,7 @@ class SettingsScreen extends StatelessWidget {
         children: <Widget>[
 
           // ── Appearance ──────────────────────────────────────────────────
-          _SectionHeader(label: 'Appearance'),
+          const _SectionHeader(label: 'Appearance'),
           const SizedBox(height: 8),
 
           // Dark Mode toggle (iOS-style)
@@ -132,7 +132,7 @@ class SettingsScreen extends StatelessWidget {
             label: 'Dark Mode',
             trailing: CupertinoSwitch(
               value: isDark,
-              activeColor: cs.primary,
+              activeTrackColor: cs.primary,
               onChanged: (value) {
                 settings.setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
               },
@@ -147,7 +147,7 @@ class SettingsScreen extends StatelessWidget {
             label: 'Follow System Theme',
             trailing: CupertinoSwitch(
               value: settings.themeMode == ThemeMode.system,
-              activeColor: cs.primary,
+              activeTrackColor: cs.primary,
               onChanged: (value) {
                 settings.setThemeMode(
                     value ? ThemeMode.system : ThemeMode.light);
@@ -157,7 +157,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Font size
-          _SectionHeader(label: 'Reading'),
+          const _SectionHeader(label: 'Reading'),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.textformat_size,
@@ -187,7 +187,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Audio
-          _SectionHeader(label: 'Audio'),
+          const _SectionHeader(label: 'Audio'),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.waveform,
@@ -217,7 +217,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Notifications (Placeholder)
-          _SectionHeader(label: 'Notifications'),
+          const _SectionHeader(label: 'Notifications'),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.bell_fill,
@@ -225,7 +225,7 @@ class SettingsScreen extends StatelessWidget {
             label: 'Push Notifications',
             trailing: CupertinoSwitch(
               value: true, // Placeholder
-              activeColor: cs.primary,
+              activeTrackColor: cs.primary,
               onChanged: (value) {
                 // Placeholder
               },
@@ -238,7 +238,7 @@ class SettingsScreen extends StatelessWidget {
             label: 'Daily Digest Delivery',
             trailing: CupertinoSwitch(
               value: true, // Placeholder
-              activeColor: cs.primary,
+              activeTrackColor: cs.primary,
               onChanged: (value) {
                 // Placeholder
               },
@@ -247,7 +247,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Data & Storage (Placeholder)
-          _SectionHeader(label: 'Data & Storage'),
+          const _SectionHeader(label: 'Data & Storage'),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.trash_fill,
@@ -264,7 +264,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Support & About (Placeholder)
-          _SectionHeader(label: 'Support & About'),
+          const _SectionHeader(label: 'Support & About'),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.chat_bubble_2_fill,
@@ -284,7 +284,7 @@ class SettingsScreen extends StatelessWidget {
           const SizedBox(height: 20),
 
           // Danger zone
-          _SectionHeader(label: 'Account', danger: true),
+          const _SectionHeader(label: 'Account', danger: true),
           const SizedBox(height: 8),
           _SettingsTile(
             icon: CupertinoIcons.delete,

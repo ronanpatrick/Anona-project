@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/sports_scoreboard.dart';
 import '../screens/profile_screen.dart';
@@ -37,20 +38,20 @@ class SportsScoreboardCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: _accent.withOpacity(0.18),
+                  color: Colors.white.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.sports_score_rounded,
-                    color: _accent, size: 20),
+                    color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Text(
+                    Text(
                       'Scoreboard',
-                      style: TextStyle(
+                      style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -59,8 +60,11 @@ class SportsScoreboardCard extends StatelessWidget {
                     ),
                     Text(
                       _trackedGamesLabel(current),
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.5), fontSize: 12),
+                      style: GoogleFonts.inter(
+                        color: Colors.white.withOpacity(0.55),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
@@ -68,9 +72,9 @@ class SportsScoreboardCard extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 16),
-          Divider(color: Colors.white.withOpacity(0.1), height: 1),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+          Divider(color: Colors.white.withOpacity(0.12), height: 1),
+          const SizedBox(height: 10),
 
           if (isLoading && current == null)
             const Center(
@@ -85,7 +89,7 @@ class SportsScoreboardCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(
                 'No games right now. Check back later.',
-                style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                style: GoogleFonts.inter(color: Colors.white.withOpacity(0.5)),
               ),
             )
           else
@@ -104,22 +108,23 @@ class SportsScoreboardCard extends StatelessWidget {
     Widget card = Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF07101A), _cardBg],
+          colors: [Color(0xFF07101A), _cardBg, _surface],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: [0.0, 0.5, 1.0],
         ),
         borderRadius: isExpanded
             ? const BorderRadius.vertical(top: Radius.circular(28))
             : BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: _cardBg.withOpacity(0.5),
-            blurRadius: 28,
+            color: _accent.withOpacity(0.3),
+            blurRadius: 32,
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: content,
     );
 
@@ -160,7 +165,7 @@ class SportsScoreboardCard extends StatelessWidget {
       if (entry.value.isEmpty) continue;
       final gamesToShow = isExpanded ? entry.value : entry.value.take(3 - displayedGames).toList();
       if (gamesToShow.isNotEmpty) {
-        if (sections.isNotEmpty) sections.add(const SizedBox(height: 12));
+        if (sections.isNotEmpty) sections.add(const SizedBox(height: 14));
         sections
           ..add(_sectionLabel(entry.key.toUpperCase()))
           ..add(_buildGamesList(gamesToShow));
@@ -170,7 +175,7 @@ class SportsScoreboardCard extends StatelessWidget {
 
     if (sections.isEmpty) {
       return Text('No games available.',
-          style: TextStyle(color: Colors.white.withOpacity(0.5)));
+          style: GoogleFonts.inter(color: Colors.white.withOpacity(0.5)));
     }
 
     int totalGames = value.yourTeams.length;
@@ -179,26 +184,35 @@ class SportsScoreboardCard extends StatelessWidget {
     }
 
     if (!isExpanded && totalGames > 3) {
-      sections.add(const SizedBox(height: 16));
-      sections.add(Center(
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Tap to view all',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.5),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+      sections.add(const SizedBox(height: 14));
+      sections.add(GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'View all $totalGames games',
+                style: GoogleFonts.inter(
+                  color: Colors.white.withOpacity(0.85),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: Colors.white.withOpacity(0.5),
-              size: 16,
-            ),
-          ],
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white.withOpacity(0.7),
+                size: 16,
+              ),
+            ],
+          ),
         ),
       ));
     }
@@ -212,7 +226,7 @@ class SportsScoreboardCard extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
         text,
-        style: TextStyle(
+        style: GoogleFonts.inter(
           color: _accent.withOpacity(0.8),
           fontSize: 10,
           fontWeight: FontWeight.w700,
@@ -225,8 +239,9 @@ class SportsScoreboardCard extends StatelessWidget {
   Widget _buildGamesList(List<SportsScoreboardGame> games) {
     return Container(
       decoration: BoxDecoration(
-        color: _surface.withOpacity(0.5),
+        color: Colors.black.withOpacity(0.2),
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
       ),
       child: Column(
         children: List.generate(games.length, (i) {
@@ -235,9 +250,9 @@ class SportsScoreboardCard extends StatelessWidget {
               if (i > 0)
                 Divider(
                     height: 1,
-                    color: Colors.white.withOpacity(0.07),
-                    indent: 14,
-                    endIndent: 14),
+                    color: Colors.white.withOpacity(0.08),
+                    indent: 0,
+                    endIndent: 0),
               _buildGameRow(games[i]),
             ],
           );
@@ -248,21 +263,21 @@ class SportsScoreboardCard extends StatelessWidget {
 
   Widget _buildGameRow(SportsScoreboardGame game) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: <Widget>[
           _buildLogo(game.awayLogo),
-          const SizedBox(width: 6),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${game.awayTeam}',
+                  game.awayTeam,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.85),
                       fontSize: 13,
                       fontWeight: FontWeight.w600),
                 ),
@@ -270,25 +285,25 @@ class SportsScoreboardCard extends StatelessWidget {
                   'vs. ${game.homeTeam}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.5), fontSize: 11),
+                  style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.w500),
                 ),
               ],
             ),
           ),
           _buildLogo(game.homeLogo),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           // Score
           Text(
             '${game.awayScore} – ${game.homeScore}',
-            style: const TextStyle(
+            style: GoogleFonts.inter(
               color: Colors.white,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               fontSize: 14,
-              letterSpacing: 0.5,
+              letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           _buildStatusPill(game),
         ],
       ),
@@ -320,28 +335,23 @@ class SportsScoreboardCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: isLive ? _liveColor : Colors.white.withOpacity(0.1),
+        color: isLive ? _liveColor.withOpacity(0.2) : Colors.white.withOpacity(0.1),
         borderRadius: BorderRadius.circular(100),
+        border: isLive ? Border.all(color: _liveColor.withOpacity(0.4), width: 1) : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isLive) ...[
-            Container(
-              width: 5,
-              height: 5,
-              decoration: const BoxDecoration(
-                  color: Colors.white, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 4),
+            Icon(Icons.sensors, color: _liveColor, size: 9),
+            const SizedBox(width: 2),
           ],
           Text(
             isLive ? 'LIVE' : game.status,
-            style: const TextStyle(
-              color: Colors.white,
+            style: GoogleFonts.inter(
+              color: isLive ? _liveColor : Colors.white,
               fontWeight: FontWeight.w700,
-              fontSize: 10,
-              letterSpacing: 0.5,
+              fontSize: 11,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

@@ -301,20 +301,18 @@ class _BriefingScreenState extends State<BriefingScreen> {
           .select('title,titles,urls')
           .eq('user_id', user.id);
       final keys = <String>{};
-      if (rows is List) {
-        for (final item in rows.whereType<Map<String, dynamic>>()) {
-          final urls = _parseStringList(item['urls']);
-          if (urls.isNotEmpty) {
-            keys.add('url:${urls.first}');
-            continue;
-          }
-          final title = _parseFirstTitle(item);
-          if (title.isNotEmpty) {
-            keys.add('title:$title');
-          }
+      for (final item in rows.whereType<Map<String, dynamic>>()) {
+        final urls = _parseStringList(item['urls']);
+        if (urls.isNotEmpty) {
+          keys.add('url:${urls.first}');
+          continue;
+        }
+        final title = _parseFirstTitle(item);
+        if (title.isNotEmpty) {
+          keys.add('title:$title');
         }
       }
-      if (!mounted) {
+          if (!mounted) {
         return;
       }
       setState(() {

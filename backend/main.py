@@ -64,13 +64,19 @@ class ArticleSummary(BaseModel):
     @classmethod
     def parse_summary(cls, value: object) -> str:
         if isinstance(value, list):
-            return "\n".join(f"- {item}" if not str(item).startswith("-") else str(item) for item in value)
+            # Join list items as clean prose sentences, not forced bullet format.
+            # Executive-tone bullets come as a pre-formatted string with '• ' from the AI.
+            cleaned = [str(item).strip().lstrip('-•·* ') for item in value]
+            return "\n".join(s for s in cleaned if s)
+        if isinstance(value, str):
+            return value
         return str(value)
 
 
 class DigestResponse(BaseModel):
     articles: list[ArticleSummary]
     count: int
+    tone: str = "analyst"
 
 
 class DeepDiveResponse(BaseModel):
@@ -229,13 +235,17 @@ def _get_cached_daily_digest(user_id: str, current_date: str) -> DigestResponse 
     row = getattr(result, "data", None)
     if not isinstance(row, dict):
         return None
+    
     digest_data = row.get("digest_data")
     if not isinstance(digest_data, dict):
         return None
+        
     try:
-        return DigestResponse.model_validate(digest_data)
+        digest = DigestResponse.model_validate(digest_data)
+        return digest
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Stored daily digest is invalid: {exc}") from exc
+        print(f"DEBUG: Stored daily digest is invalid: {exc}")
+        return None
 
 
 def _digest_response_json(response: DigestResponse) -> dict:
@@ -252,33 +262,32 @@ def _store_daily_digest(user_id: str, current_date: str, digest: DigestResponse)
         "digest_data": _digest_response_json(digest),
     }
     try:
-        client.table("daily_digests").insert(payload).execute()
+        # Use upsert to avoid duplicate key errors
+        client.table("daily_digests").upsert(payload).execute()
     except Exception as exc:
         print(f"DEBUG: Daily digest cache write failed: {exc}")
 
 
+_TOPIC_SUMMARY_CACHE: dict[str, ArticleSummary] = {}
+
 def _get_cached_topic_summary(topic: str, tone: str, current_date: str) -> ArticleSummary | None:
-    cache_key_str = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
-    # Convert string key to valid UUID to satisfy DB constraints
-    cache_key_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, cache_key_str))
-    digest = _get_cached_daily_digest(user_id=cache_key_uuid, current_date=current_date)
-    if digest and digest.articles:
-        return digest.articles[0]
-    return None
+    # Move topic caching to memory to avoid FK constraints in DB
+    cache_key = f"{current_date}|TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    return _TOPIC_SUMMARY_CACHE.get(cache_key)
 
 
 def _store_topic_summary(topic: str, tone: str, current_date: str, summary: ArticleSummary) -> None:
-    cache_key_str = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
-    # Convert string key to valid UUID to satisfy DB constraints
-    cache_key_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, cache_key_str))
-    digest = DigestResponse(articles=[summary], count=1)
-    _store_daily_digest(user_id=cache_key_uuid, current_date=current_date, digest=digest)
+    # Move topic caching to memory to avoid FK constraints in DB
+    cache_key = f"{current_date}|TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    _TOPIC_SUMMARY_CACHE[cache_key] = summary
 
 
 def _article_summary_json(article: ArticleSummary) -> dict:
     if hasattr(article, "model_dump"):
         return article.model_dump()
     return article.dict()
+
+_GLOBAL_DISCOVERY_CACHE: dict[str, list[ArticleSummary]] = {}
 
 
 def _get_cached_daily_discovery(user_id: str, current_date: str) -> list[ArticleSummary] | None:
@@ -316,7 +325,8 @@ def _store_daily_discovery(user_id: str, current_date: str, discovery: list[Arti
         "discovery_data": [_article_summary_json(item) for item in discovery],
     }
     try:
-        client.table("daily_discovery").insert(payload).execute()
+        # Use upsert to avoid duplicate key errors
+        client.table("daily_discovery").upsert(payload).execute()
     except Exception as exc:
         print(f"DEBUG: Daily discovery cache write failed: {exc}")
 
@@ -782,31 +792,19 @@ def _cluster_by_topics(
 
 _SCRAPE_CACHE: dict[str, str] = {}
 
+
 async def _scrape_single_url(url: str, min_chars: int) -> tuple[str, str] | None:
     if url in _SCRAPE_CACHE:
         return url, _SCRAPE_CACHE[url]
-    try:
-        page = await asyncio.to_thread(trafilatura.fetch_url, url)
-        if not page:
-            return None
-        extracted = await asyncio.to_thread(
-            trafilatura.extract,
-            page,
-            include_comments=False,
-            include_tables=False,
-            favor_precision=True,
-        )
-    except Exception:
+    
+    # Use the NewsService logic which now has robust fallbacks and headers
+    scraped = await asyncio.to_thread(news_service.scrape_urls, [url], 1, min_chars)
+    if not scraped:
         return None
-
-    if not extracted:
-        return None
-
-    cleaned = news_service.clean_text(extracted)[: settings.max_article_chars]
-    if len(cleaned) < min_chars:
-        return None
-    _SCRAPE_CACHE[url] = cleaned
-    return url, cleaned
+        
+    res = scraped[0]
+    _SCRAPE_CACHE[url] = res["text"]
+    return res["url"], res["text"]
 
 
 async def _scrape_urls_parallel(
@@ -920,7 +918,11 @@ def _build_topic_summary(
     card_title = card.get("title", "Daily Update")
     card_summary = card.get("summary", "")
     if isinstance(card_summary, list):
-        card_summary = "\n".join(f"- {item}" if not str(item).startswith("-") else str(item) for item in card_summary)
+        if tone == "executive":
+            cleaned = [f"• {str(item).strip().lstrip('-•·* ')}" for item in card_summary]
+        else:
+            cleaned = [str(item).strip().lstrip('-•·* ') for item in card_summary]
+        card_summary = "\n".join(s for s in cleaned if s)
     card_urls = card.get("urls", [])
     
     # Match back to reports to get sources and image_url
@@ -986,8 +988,11 @@ def get_daily_digest(
     print(f"DEBUG: Backend received topics: {request.selected_topics}")
     user_id = _resolve_digest_user_id(request.user_id, authorization, query_user_id=user_id)
     current_date = _today_digest_date()
+    
     cached_digest = _get_cached_daily_digest(user_id=user_id, current_date=current_date)
-    if cached_digest:
+    # Only return cache if the tone also matches
+    print(f"DEBUG: Cache check - DB tone: {cached_digest.tone if cached_digest else 'None'}, Request tone: {request.summary_tone}")
+    if cached_digest and cached_digest.tone.lower() == request.summary_tone.lower():
         _debug_log_digest_return(
             final_digest_list=cached_digest.articles,
             payload_topics=request.selected_topics,
@@ -1041,22 +1046,24 @@ def get_daily_digest(
             else:
                 _store_topic_summary(topic, request.summary_tone, current_date, summary)
             return summary
-        except Exception as exc:
-            print(f"DEBUG: Failed to process topic {topic}: {exc}")
+        except Exception as e:
+            print(f"DEBUG: Topic error for {topic}: {e}")
             return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    # Run topic synthesis in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results = list(executor.map(_process_topic, topics_to_process))
+    
+    final_digest_list = [r for r in results if r is not None]
 
-    for summary in results:
-        if summary:
-            final_digest_list.append(summary)
+    if not final_digest_list:
+        return _friendly_empty_digest()
 
-    if final_digest_list:
-        print(f"DEBUG: Successfully generated {len(final_digest_list)} topic cards.")
-        digest_response = DigestResponse(articles=final_digest_list, count=len(final_digest_list))
-    else:
-        digest_response = _friendly_empty_digest()
+    digest_response = DigestResponse(
+        articles=final_digest_list,
+        count=len(final_digest_list),
+        tone=request.summary_tone,
+    )
 
     try:
         _store_daily_digest(user_id=user_id, current_date=current_date, digest=digest_response)
@@ -1080,19 +1087,29 @@ def get_daily_digest(
 
 
 @app.get("/get-deep-dive", response_model=DeepDiveResponse, tags=["analysis"])
-def get_deep_dive(
+async def get_deep_dive(
     url: str = Query(min_length=10),
-    tone: ToneType = Query(default="analyst"),
+    fallback_text: str | None = Query(default=None),
+    tone: str = Query(default="analyst"),
     authorization: str | None = Header(default=None),
 ) -> DeepDiveResponse:
     _verify_user_if_present(authorization)
 
-    scraped = news_service.scrape_urls([url], max_articles=1, min_chars=150)
-    if not scraped:
-        raise HTTPException(status_code=400, detail="Unable to scrape article content")
+    # Use the async scraper logic for better consistency
+    scraped = await _scrape_single_url(url, min_chars=120)
+    if scraped:
+        _, text = scraped
+    elif fallback_text and len(fallback_text.strip()) > 50:
+        print(f"DEBUG: Scrape failed for {url}, using fallback_text")
+        text = fallback_text.strip()
+    else:
+        raise HTTPException(
+            status_code=400, 
+            detail="Unable to scrape article content. The source might be blocked or content too short."
+        )
 
     try:
-        analysis = ai_service.summarize_deep_dive(text=scraped[0]["text"], tone=tone)
+        analysis = ai_service.summarize_deep_dive(text=text, tone=tone)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
     return DeepDiveResponse(url=url, analysis=analysis)
@@ -1109,21 +1126,21 @@ def get_discovery_news(
 ) -> list[ArticleSummary]:
     user_id = _resolve_digest_user_id(request_user_id=None, authorization=authorization, query_user_id=user_id)
     current_date = _today_digest_date()
+    
+    # Check DB cache for user-specific discovery (using real user_id)
     cached_discovery = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
-    if cached_discovery is not None:
+    # Check if cached discovery has matching tone (we check first item's tone metadata if available, 
+    # but for discovery we can just use memory cache for global and DB for per-user)
+    if cached_discovery:
         return cached_discovery
 
-    # Use a deterministic valid UUID for global discovery by tone to satisfy DB constraints
-    global_cache_key_str = f"GLOBAL_DISCOVERY|TONE:{tone.lower()}"
-    global_cache_key = str(uuid.uuid5(uuid.NAMESPACE_DNS, global_cache_key_str))
-    cached_global = _get_cached_daily_discovery(user_id=global_cache_key, current_date=current_date)
-    if cached_global is not None:
-        print("DEBUG: Global discovery cache HIT")
-        try:
-            _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=cached_global)
-        except Exception:
-            pass
-        return cached_global[:limit]
+    # Check Memory cache for global discovery
+    global_cache_key = f"{current_date}|TONE:{tone.lower()}"
+    if global_cache_key in _GLOBAL_DISCOVERY_CACHE:
+        print("DEBUG: Global discovery memory cache HIT")
+        return _GLOBAL_DISCOVERY_CACHE[global_cache_key][:limit]
+
+    # Remove DB global cache key as it violates FK constraints
 
     user_excluded_topics = _load_user_excluded_topics(user_id)
     combined_excluded_topics = _normalize_topic_terms([*(excluded_topics or []), *user_excluded_topics])
@@ -1199,11 +1216,14 @@ def get_discovery_news(
                 break
 
         if summaries:
+            # Store in user's DB cache (using real UUID)
             try:
                 _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=summaries)
-                _store_daily_discovery(user_id=global_cache_key, current_date=current_date, discovery=summaries)
             except Exception as e:
-                print(f"DEBUG: Discovery cache write failed (non-fatal): {e}")
+                print(f"DEBUG: User discovery cache write failed (non-fatal): {e}")
+            
+            # Store in Memory cache for global reuse
+            _GLOBAL_DISCOVERY_CACHE[global_cache_key] = summaries
     except Exception as e:
         print(f"DEBUG: Discovery logic failed with fatal error: {e}")
         import traceback

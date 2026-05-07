@@ -209,15 +209,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           .select('title,titles,urls')
           .eq('user_id', user.id);
       final keys = <String>{};
-      if (rows is List) {
-        for (final item in rows.whereType<Map<String, dynamic>>()) {
-          final urls = _parseStringList(item['urls']);
-          if (urls.isNotEmpty) { keys.add('url:${urls.first}'); continue; }
-          final t = _parseFirstTitle(item);
-          if (t.isNotEmpty) keys.add('title:$t');
-        }
+      for (final item in rows.whereType<Map<String, dynamic>>()) {
+        final urls = _parseStringList(item['urls']);
+        if (urls.isNotEmpty) { keys.add('url:${urls.first}'); continue; }
+        final t = _parseFirstTitle(item);
+        if (t.isNotEmpty) keys.add('title:$t');
       }
-      if (!mounted) return;
+          if (!mounted) return;
       setState(() { _savedArticleKeys..clear()..addAll(keys); });
     } catch (_) {}
   }

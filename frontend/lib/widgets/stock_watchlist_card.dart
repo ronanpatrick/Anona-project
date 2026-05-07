@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/market_snapshot_item.dart';
-import '../screens/profile_screen.dart';
 import '../theme/app_theme.dart';
 
 class StockWatchlistCard extends StatelessWidget {
@@ -23,15 +23,19 @@ class StockWatchlistCard extends StatelessWidget {
     return '$sign${value.toStringAsFixed(2)}%';
   }
 
+  // Compute overall market sentiment
+  int get _gainers => items.where((i) => i.changePercent >= 0).length;
+  int get _losers  => items.where((i) => i.changePercent < 0).length;
+
   @override
   Widget build(BuildContext context) {
-    final int totalItems = items.length;
+    final int totalItems   = items.length;
     final int displayCount = isExpanded ? totalItems : (totalItems > 3 ? 3 : totalItems);
 
     Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // Header row
+        // ── Header ──────────────────────────────────────────────────────────
         Row(
           children: <Widget>[
             Container(
@@ -48,9 +52,9 @@ class StockWatchlistCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const Text(
+                  Text(
                     'Your Watchlist',
-                    style: TextStyle(
+                    style: GoogleFonts.inter(
                       color: Colors.white,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
@@ -59,20 +63,25 @@ class StockWatchlistCard extends StatelessWidget {
                   ),
                   Text(
                     '$totalItems stocks tracked',
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.6), fontSize: 12),
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.55),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
               ),
             ),
+            // Market pulse badge
+            if (items.isNotEmpty) _MarketPulseBadge(gainers: _gainers, losers: _losers),
           ],
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Divider(color: Colors.white.withOpacity(0.12), height: 1),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
 
-        // Stock rows
+        // ── Stock rows ───────────────────────────────────────────────────────
         if (isExpanded)
           Expanded(
             child: ListView.separated(
@@ -80,8 +89,8 @@ class StockWatchlistCard extends StatelessWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               itemCount: displayCount,
               separatorBuilder: (_, __) => Divider(
-                height: 12,
-                color: Colors.white.withOpacity(0.1),
+                height: 1,
+                color: Colors.white.withOpacity(0.08),
               ),
               itemBuilder: _buildItem,
             ),
@@ -92,43 +101,63 @@ class StockWatchlistCard extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             itemCount: displayCount,
             separatorBuilder: (_, __) => Divider(
-              height: 12,
-              color: Colors.white.withOpacity(0.1),
+              height: 1,
+              color: Colors.white.withOpacity(0.08),
             ),
             itemBuilder: _buildItem,
           ),
 
-        if (!isExpanded && totalItems > 3) ...[
-          const SizedBox(height: 12),
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Tap to view all',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: Colors.white.withOpacity(0.5),
-                  size: 16,
-                ),
-              ],
-            ),
-          ),
+        const SizedBox(height: 14),
+
+        // ── Market overview strip (only in preview mode) ─────────────────────
+        if (!isExpanded && items.length > 1) ...[
+          _MarketOverviewStrip(items: items),
+          const SizedBox(height: 14),
         ],
 
-        const SizedBox(height: 12),
+        // ── Footer ────────────────────────────────────────────────────────────
+        if (!isExpanded && totalItems > 3) ...[
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'View all $totalItems stocks',
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withOpacity(0.85),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white.withOpacity(0.7),
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
         Center(
           child: Text(
             '* Market data as of last close',
-            style: TextStyle(
-                color: Colors.white.withOpacity(0.4), fontSize: 10),
+            style: GoogleFonts.inter(
+              color: Colors.white.withOpacity(0.35),
+              fontSize: 10,
+              fontWeight: FontWeight.w400,
+            ),
           ),
         ),
       ],
@@ -136,24 +165,24 @@ class StockWatchlistCard extends StatelessWidget {
 
     Widget card = Container(
       decoration: BoxDecoration(
-        // Deep money-green gradient
         gradient: const LinearGradient(
-          colors: [Color(0xFF004D2E), AnonaColors.moneyGreen],
+          colors: [Color(0xFF003D24), Color(0xFF005C37), AnonaColors.moneyGreen],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: [0.0, 0.5, 1.0],
         ),
         borderRadius: isExpanded
             ? const BorderRadius.vertical(top: Radius.circular(28))
             : BorderRadius.circular(28),
-        boxShadow: [
+        boxShadow: const [
           BoxShadow(
             color: AnonaColors.moneyGreenGlow,
-            blurRadius: 28,
-            offset: const Offset(0, 8),
+            blurRadius: 32,
+            offset: Offset(0, 10),
           ),
         ],
       ),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
       child: content,
     );
 
@@ -169,63 +198,234 @@ class StockWatchlistCard extends StatelessWidget {
   Widget _buildItem(BuildContext context, int index) {
     final item       = items[index];
     final isPositive = item.changePercent >= 0;
-    final rowTitle   = item.shortName.isEmpty
-        ? item.symbol
-        : item.shortName;
+    final rowTitle   = item.shortName.isEmpty ? item.symbol : item.shortName;
 
-    return Row(
-      children: <Widget>[
-        // Ticker chip
-        Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: <Widget>[
+          // Ticker chip
+          Container(
+            width: 60,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Colors.white.withOpacity(0.08),
+                width: 1,
+              ),
+            ),
+            child: Text(
+              item.symbol,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
           ),
-          child: Text(
-            item.symbol,
-            style: const TextStyle(
+          const SizedBox(width: 10),
+          // Name
+          Expanded(
+            child: Text(
+              rowTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: Colors.white.withOpacity(0.65),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          // Price
+          Text(
+            _formatPrice(item.currentPrice),
+            style: GoogleFonts.inter(
               color: Colors.white,
-              fontSize: 13,
               fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
+              fontSize: 14,
+              letterSpacing: -0.2,
             ),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            rowTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.65),
-              fontSize: 12,
+          const SizedBox(width: 8),
+          // Change pill
+          _ChangePill(
+            label: _formatChangePercent(item.changePercent),
+            isPositive: isPositive,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Market Overview Strip ──────────────────────────────────────────────────────
+
+class _MarketOverviewStrip extends StatelessWidget {
+  const _MarketOverviewStrip({required this.items});
+  final List<MarketSnapshotItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    // Compute summary stats
+    final gainers = items.where((i) => i.changePercent >= 0).length;
+    final losers  = items.where((i) => i.changePercent < 0).length;
+    final total   = items.length;
+    final gainerFraction = total > 0 ? gainers / total : 0.0;
+
+    final avgChange = total > 0
+        ? items.map((i) => i.changePercent).reduce((a, b) => a + b) / total
+        : 0.0;
+    final avgPositive = avgChange >= 0;
+    final avgSign = avgPositive ? '+' : '';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'MARKET PULSE',
+                style: GoogleFonts.inter(
+                  color: AnonaColors.moneyGreenLight.withOpacity(0.8),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '$avgSign${avgChange.toStringAsFixed(2)}% avg',
+                style: GoogleFonts.inter(
+                  color: avgPositive
+                      ? AnonaColors.gainGreen
+                      : AnonaColors.lossRed,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Gainer/loser bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(100),
+            child: SizedBox(
+              height: 5,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: (gainerFraction * 100).round(),
+                    child: Container(color: AnonaColors.gainGreen),
+                  ),
+                  Expanded(
+                    flex: ((1 - gainerFraction) * 100).round().clamp(1, 100),
+                    child: Container(color: AnonaColors.lossRed.withOpacity(0.7)),
+                  ),
+                ],
+              ),
             ),
           ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _DotLabel(color: AnonaColors.gainGreen, label: '$gainers up'),
+              const SizedBox(width: 12),
+              _DotLabel(color: AnonaColors.lossRed, label: '$losers down'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DotLabel extends StatelessWidget {
+  const _DotLabel({required this.color, required this.label});
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        // Price
+        const SizedBox(width: 4),
         Text(
-          _formatPrice(item.currentPrice),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
+          label,
+          style: GoogleFonts.inter(
+            color: Colors.white.withOpacity(0.55),
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
           ),
-        ),
-        const SizedBox(width: 8),
-        // Change pill
-        _ChangePill(
-          label: _formatChangePercent(item.changePercent),
-          isPositive: isPositive,
         ),
       ],
     );
   }
 }
 
-// ── Sub-widgets ───────────────────────────────────────────────────────────────
+// ── Market Pulse Badge ─────────────────────────────────────────────────────────
+
+class _MarketPulseBadge extends StatelessWidget {
+  const _MarketPulseBadge({required this.gainers, required this.losers});
+  final int gainers;
+  final int losers;
+
+  @override
+  Widget build(BuildContext context) {
+    final majority = gainers >= losers;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: (majority ? AnonaColors.gainGreen : AnonaColors.lossRed)
+            .withOpacity(0.2),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(
+          color: (majority ? AnonaColors.gainGreen : AnonaColors.lossRed)
+              .withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            majority ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+            color: majority ? AnonaColors.gainGreen : AnonaColors.lossRed,
+            size: 13,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            majority ? '$gainers / ${gainers + losers}' : '$losers / ${gainers + losers}',
+            style: GoogleFonts.inter(
+              color: majority ? AnonaColors.gainGreen : AnonaColors.lossRed,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Change Pill ────────────────────────────────────────────────────────────────
 
 class _ChangePill extends StatelessWidget {
   const _ChangePill({required this.label, required this.isPositive});
@@ -238,22 +438,23 @@ class _ChangePill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color,
+        color: color.withOpacity(0.2),
         borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: color.withOpacity(0.4), width: 1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             isPositive ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
-            color: Colors.white,
-            size: 10,
+            color: color,
+            size: 9,
           ),
           const SizedBox(width: 2),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white,
+            style: GoogleFonts.inter(
+              color: color,
               fontWeight: FontWeight.w700,
               fontSize: 11,
             ),

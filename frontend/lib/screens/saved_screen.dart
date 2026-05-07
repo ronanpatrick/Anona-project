@@ -148,34 +148,30 @@ class _SavedScreenState extends State<SavedScreen> {
           .order('created_at', ascending: false);
 
       final folderMap = <String, String>{};
-      if (foldersResponse is List) {
-        for (final row in foldersResponse.whereType<Map<String, dynamic>>()) {
-          final id = (row['id'] as String? ?? '').trim();
-          final name = (row['name'] as String? ?? '').trim();
-          if (id.isNotEmpty) {
-            folderMap[id] = name.isEmpty ? 'Untitled folder' : name;
-          }
+      for (final row in foldersResponse.whereType<Map<String, dynamic>>()) {
+        final id = (row['id'] as String? ?? '').trim();
+        final name = (row['name'] as String? ?? '').trim();
+        if (id.isNotEmpty) {
+          folderMap[id] = name.isEmpty ? 'Untitled folder' : name;
         }
       }
-
+    
       final byFolder = <String, List<_SavedSummaryItem>>{};
-      if (savedResponse is List) {
-        for (final row in savedResponse.whereType<Map<String, dynamic>>()) {
-          final folderId = (row['folder_id'] as String? ?? '').trim();
-          final folderName = _folderNameForId(folderMap, folderId);
-          final item = _SavedSummaryItem(
-            id: (row['id'] as String? ?? '').trim(),
-            title: _parseTitle(row),
-            summary: (row['summary'] as String? ?? '').trim(),
-            sources: _parseStringList(row['sources']),
-            urls: _parseStringList(row['urls']),
-            imageUrl: _parseImageUrl(row),
-            folderId: folderId,
-          );
-          byFolder.putIfAbsent(folderName, () => <_SavedSummaryItem>[]).add(item);
-        }
+      for (final row in savedResponse.whereType<Map<String, dynamic>>()) {
+        final folderId = (row['folder_id'] as String? ?? '').trim();
+        final folderName = _folderNameForId(folderMap, folderId);
+        final item = _SavedSummaryItem(
+          id: (row['id'] as String? ?? '').trim(),
+          title: _parseTitle(row),
+          summary: (row['summary'] as String? ?? '').trim(),
+          sources: _parseStringList(row['sources']),
+          urls: _parseStringList(row['urls']),
+          imageUrl: _parseImageUrl(row),
+          folderId: folderId,
+        );
+        byFolder.putIfAbsent(folderName, () => <_SavedSummaryItem>[]).add(item);
       }
-
+    
       final sections = byFolder.entries
           .map(
             (entry) => _SavedFolderSection(

@@ -82,16 +82,9 @@ class _MainScaffoldState extends State<MainScaffold> {
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: Icon(CupertinoIcons.line_horizontal_3, size: 22, color: cs.onSurface),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
 
-      drawer: const MainDrawer(),
+      endDrawer: const MainDrawer(),
 
       body: IndexedStack(
         index: _currentIndex,

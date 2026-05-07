@@ -176,8 +176,8 @@ class AppTheme {
         elevation: 0,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.only(
-            topRight: Radius.circular(24),
-            bottomRight: Radius.circular(24),
+            topLeft: Radius.circular(24),
+            bottomLeft: Radius.circular(24),
           ),
         ),
       ),

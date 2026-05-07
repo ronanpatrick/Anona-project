@@ -62,6 +62,28 @@ class AIService:
 
         reports_block = "\n\n".join(combined_reports)
         
+        # Tone-aware format instructions
+        if normalized_tone == "executive":
+            summary_format = (
+                "'summary': (string) 2-4 concise bullet points starting with '• '. "
+                "Each bullet is one sharp, fact-forward sentence. No markdown symbols like ** or ##."
+            )
+        elif normalized_tone == "conversationalist":
+            summary_format = (
+                "'summary': (string) 2-3 short, conversational sentences written as flowing prose. "
+                "Friendly and approachable. No bullet points, no markdown symbols."
+            )
+        elif normalized_tone == "layman":
+            summary_format = (
+                "'summary': (string) 2-3 plain-English sentences as flowing prose. "
+                "Avoid jargon; explain things simply as if talking to a curious friend. No bullet points, no markdown symbols."
+            )
+        else:  # analyst / professional / default
+            summary_format = (
+                "'summary': (string) 2-3 analytical sentences as flowing prose. "
+                "Include key data points and implications. No bullet points, no markdown symbols."
+            )
+
         prompt = (
             f"You are an expert editor. Synthesize these articles into exactly ONE comprehensive briefing card about the topic: {topic}. "
             "Mention the sources (e.g., 'According to Reuters...').\n"
@@ -73,9 +95,9 @@ class AIService:
             f"Tone preference: {normalized_tone}\n"
             "Output requirements:\n"
             "You MUST return a valid JSON object with a single key 'card'. The value of 'card' must be an object with:\n"
-            "- 'topic': (string) {topic}\n"
+            f"- 'topic': (string) {topic}\n"
             "- 'title': (string) A punchy, one-line catchy headline for this summary card. Keep it extremely brief and impactful.\n"
-            "- 'summary': (string) The actual summary text. This MUST be formatted as 1-3 markdown bullet points.\n"
+            f"- {summary_format}\n"
             "- 'sources': (array of strings) The publishers explicitly mentioned in the synthesis.\n"
             "- 'urls': (array of strings) The source URLs used to synthesize this card. Must match the exact URLs provided in the reports.\n"
             "- Do not invent facts, citations, or URLs.\n\n"
@@ -90,20 +112,30 @@ class AIService:
 
         normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
         prompt = (
-            "Create a high-detail deep-dive summary of this single news article.\n"
+            "Create a high-detail deep-dive analysis of this news article.\n"
             f"Tone: {normalized_tone}\n"
-            "Format:\n"
-            "1) Executive Summary (2-3 sentences)\n"
-            "2) Hard Statistics (4-6 bullets with explicit numbers/percentages/dates)\n"
-            "3) Direct Quotes (2-4 verbatim quotes with speaker/source if present)\n"
-            "4) Technical Jargon Explained (3-5 bullets: term -> plain-language meaning)\n"
-            "5) Why It Matters (2 short paragraphs)\n"
-            "6) Watchlist (3 bullets on what to monitor next)\n\n"
+            "CRITICAL FORMATTING RULES:\n"
+            "- Do NOT use markdown symbols: no ##, no **, no *, no _\n"
+            "- Use plain section labels followed by a newline (e.g. 'EXECUTIVE SUMMARY' on its own line)\n"
+            "- For bullet items, use a dash followed by a space: '- '\n"
+            "- Separate each section with a blank line\n\n"
+            "Sections to include:\n"
+            "EXECUTIVE SUMMARY\n"
+            "2-3 clear sentences summarizing the story.\n\n"
+            "KEY STATISTICS\n"
+            "4-6 items as '- [stat]: [explanation]'. Include explicit numbers, percentages, or dates.\n\n"
+            "DIRECT QUOTES\n"
+            "2-4 items as '- \"[quote]\" — [speaker/source]'. If not available, write: Not available in source text.\n\n"
+            "TERMS EXPLAINED\n"
+            "3-5 items as '- [term]: [plain-language meaning]'. If not applicable, write: Not available in source text.\n\n"
+            "WHY IT MATTERS\n"
+            "2 short paragraphs explaining the broader significance.\n\n"
+            "WHAT TO WATCH\n"
+            "3 items as '- [thing to monitor]'.\n\n"
             "Rules:\n"
             "- Prioritize concrete facts over opinion.\n"
             "- If a section has no evidence in the article, write 'Not available in source text.'\n"
-            "- Do not invent data, quotes, or terminology.\n"
-            "- Keep output in markdown headings and bullets.\n\n"
+            "- Do not invent data, quotes, or terminology.\n\n"
             "Article Text:\n"
             f"{text}"
         )

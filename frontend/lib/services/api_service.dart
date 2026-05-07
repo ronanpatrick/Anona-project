@@ -37,7 +37,7 @@ class ApiService {
   }
 
   String? get _currentUserId {
-    final id = _supabase.auth.currentUser?.id?.trim();
+    final id = _supabase.auth.currentUser?.id.trim();
     if (id == null || id.isEmpty) {
       return null;
     }
@@ -101,9 +101,12 @@ class ApiService {
     }
   }
 
-  Future<String> fetchDeepDive(String url) async {
+  Future<String> fetchDeepDive(String url, {String? fallbackText}) async {
     final uri = Uri.parse('$_baseUrl/get-deep-dive').replace(
-      queryParameters: <String, String>{'url': url},
+      queryParameters: <String, String>{
+        'url': url,
+        if (fallbackText != null && fallbackText.isNotEmpty) 'fallback_text': fallbackText,
+      },
     );
     final response = await http.get(uri, headers: _authHeaders());
 
