@@ -1,12 +1,92 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// ── Topic options ──────────────────────────────────────────────────────────────
 const List<String> onboardingTopics = <String>[
   'Tech',
   'Business',
   'Science',
   'Health',
+  'Politics',
+  'World',
 ];
 
+// ── Publisher sources (all selected by default) ────────────────────────────────
+const List<String> onboardingSources = <String>[
+  'Reuters',
+  'AP News',
+  'BBC',
+  'WSJ',
+  'NYT',
+  'Fox News',
+  'CNN',
+  'Bloomberg',
+  'The Guardian',
+  'Al Jazeera',
+  'CNBC',
+  'NPR',
+];
+
+// ── AI Personality ─────────────────────────────────────────────────────────────
+enum AiPersonality {
+  executive,
+  analyst,
+  conversationalist,
+  layman;
+
+  String get label {
+    switch (this) {
+      case AiPersonality.executive:
+        return 'The Executive';
+      case AiPersonality.analyst:
+        return 'The Analyst';
+      case AiPersonality.conversationalist:
+        return 'The Conversationalist';
+      case AiPersonality.layman:
+        return 'The Layman';
+    }
+  }
+
+  String get subtitle {
+    switch (this) {
+      case AiPersonality.executive:
+        return 'Concise, bullet-driven briefs';
+      case AiPersonality.analyst:
+        return 'Deep context & nuance';
+      case AiPersonality.conversationalist:
+        return 'Podcast-style narrative';
+      case AiPersonality.layman:
+        return 'Plain, simple language';
+    }
+  }
+
+  String get emoji {
+    switch (this) {
+      case AiPersonality.executive:
+        return '⚡';
+      case AiPersonality.analyst:
+        return '🔬';
+      case AiPersonality.conversationalist:
+        return '🎙️';
+      case AiPersonality.layman:
+        return '💬';
+    }
+  }
+
+  String get dbValue {
+    switch (this) {
+      case AiPersonality.executive:
+        return 'executive';
+      case AiPersonality.analyst:
+        return 'analyst';
+      case AiPersonality.conversationalist:
+        return 'conversationalist';
+      case AiPersonality.layman:
+        return 'layman';
+    }
+  }
+}
+
+// ── Legacy SummaryTone (kept for auth_service compatibility) ───────────────────
 enum SummaryTone {
   professional,
   casual,
@@ -49,40 +129,69 @@ enum SummaryTone {
 
 enum SourceControlPreference { allow, block }
 
+// ── Onboarding State ───────────────────────────────────────────────────────────
 class OnboardingState {
   const OnboardingState({
+    this.firstName = '',
     this.topics = const <String>[],
+    this.selectedSources = onboardingSources,
+    this.aiPersonality = AiPersonality.executive,
+    this.stockTickers = const <String>[],
+    this.sportsTeams = const <String>[],
+    this.briefingTime = '08:00',
+    // Legacy fields kept for auth_service compatibility
     this.lifeTracking = const <String>[],
     this.sourceControl = SourceControlPreference.allow,
     this.summaryTone = SummaryTone.professional,
-    this.briefingTime = '08:00',
   });
 
+  final String firstName;
   final List<String> topics;
+  final List<String> selectedSources;
+  final AiPersonality aiPersonality;
+  final List<String> stockTickers;
+  final List<String> sportsTeams;
+  final String briefingTime;
+
+  // Legacy
   final List<String> lifeTracking;
   final SourceControlPreference sourceControl;
   final SummaryTone summaryTone;
-  final String briefingTime;
 
   OnboardingState copyWith({
+    String? firstName,
     List<String>? topics,
+    List<String>? selectedSources,
+    AiPersonality? aiPersonality,
+    List<String>? stockTickers,
+    List<String>? sportsTeams,
+    String? briefingTime,
     List<String>? lifeTracking,
     SourceControlPreference? sourceControl,
     SummaryTone? summaryTone,
-    String? briefingTime,
   }) {
     return OnboardingState(
+      firstName: firstName ?? this.firstName,
       topics: topics ?? this.topics,
+      selectedSources: selectedSources ?? this.selectedSources,
+      aiPersonality: aiPersonality ?? this.aiPersonality,
+      stockTickers: stockTickers ?? this.stockTickers,
+      sportsTeams: sportsTeams ?? this.sportsTeams,
+      briefingTime: briefingTime ?? this.briefingTime,
       lifeTracking: lifeTracking ?? this.lifeTracking,
       sourceControl: sourceControl ?? this.sourceControl,
       summaryTone: summaryTone ?? this.summaryTone,
-      briefingTime: briefingTime ?? this.briefingTime,
     );
   }
 }
 
+// ── Onboarding Controller ──────────────────────────────────────────────────────
 class OnboardingController extends StateNotifier<OnboardingState> {
   OnboardingController() : super(const OnboardingState());
+
+  void setFirstName(String name) {
+    state = state.copyWith(firstName: name);
+  }
 
   void toggleTopic(String topic) {
     final next = List<String>.from(state.topics);
@@ -94,6 +203,51 @@ class OnboardingController extends StateNotifier<OnboardingState> {
     state = state.copyWith(topics: next);
   }
 
+  void toggleSource(String source) {
+    final next = List<String>.from(state.selectedSources);
+    if (next.contains(source)) {
+      next.remove(source);
+    } else {
+      next.add(source);
+    }
+    state = state.copyWith(selectedSources: next);
+  }
+
+  void setAiPersonality(AiPersonality personality) {
+    state = state.copyWith(aiPersonality: personality);
+  }
+
+  void addStockTicker(String ticker) {
+    final t = ticker.trim().toUpperCase();
+    if (t.isEmpty) return;
+    final next = List<String>.from(state.stockTickers);
+    if (!next.contains(t)) next.add(t);
+    state = state.copyWith(stockTickers: next);
+  }
+
+  void removeStockTicker(String ticker) {
+    final next = List<String>.from(state.stockTickers)..remove(ticker);
+    state = state.copyWith(stockTickers: next);
+  }
+
+  void addSportsTeam(String team) {
+    final t = team.trim();
+    if (t.isEmpty) return;
+    final next = List<String>.from(state.sportsTeams);
+    if (!next.contains(t)) next.add(t);
+    state = state.copyWith(sportsTeams: next);
+  }
+
+  void removeSportsTeam(String team) {
+    final next = List<String>.from(state.sportsTeams)..remove(team);
+    state = state.copyWith(sportsTeams: next);
+  }
+
+  void setBriefingTime(String value) {
+    state = state.copyWith(briefingTime: value);
+  }
+
+  // Legacy
   void toggleLifeTracking(String item) {
     final next = List<String>.from(state.lifeTracking);
     if (next.contains(item)) {
@@ -110,10 +264,6 @@ class OnboardingController extends StateNotifier<OnboardingState> {
 
   void setSummaryTone(SummaryTone value) {
     state = state.copyWith(summaryTone: value);
-  }
-
-  void setBriefingTime(String value) {
-    state = state.copyWith(briefingTime: value);
   }
 }
 

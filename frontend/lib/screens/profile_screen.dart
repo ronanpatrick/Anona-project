@@ -66,6 +66,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .select('selected_topics,summary_tone,sports_teams')
             .eq('id', user.id)
             .maybeSingle(),
+
       ]);
 
       final profileRow = results[0] as Map<String, dynamic>?;
@@ -78,6 +79,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _usernameController.text = ((profileRow?['username'] as String?) ?? '').trim();
       _selectedTopics = _parseStringList(preferencesRow?['selected_topics']);
       _selectedSportsTeams = _parseStringList(preferencesRow?['sports_teams']);
+
       _summaryTone = SummaryTone.fromDbValue(preferencesRow?['summary_tone'] as String?);
     } catch (error) {
       if (!mounted) {
@@ -173,6 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           },
           onConflict: 'id',
         ),
+
       ]);
 
       if (!mounted) {

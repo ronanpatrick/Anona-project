@@ -32,9 +32,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isLoading = false;
   bool _isMarketLoading = false;
   bool _isSportsLoading = false;
+  List<String> _selectedTopics = <String>[];
 
   // Track current page for dot indicator
   int _currentPage = 0;
+  String? _firstName;
 
   @override
   void initState() {
@@ -67,10 +69,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _loadSavedArticleKeys();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchUserPreferences();
       _fetchDailyDigest();
       _fetchMarketSnapshot();
       _fetchSportsScoreboard();
     });
+  }
+
+  Future<void> _fetchUserPreferences() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      final row = await Supabase.instance.client
+          .from('user_preferences')
+          .select('first_name, selected_topics')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (mounted && row != null) {
+        final List<dynamic> topicsJson = row['selected_topics'] as List<dynamic>? ?? [];
+        setState(() {
+          _firstName = row['first_name'] as String?;
+          _selectedTopics = topicsJson.map((e) => e.toString()).toList();
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -85,8 +107,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _fetchDailyDigest() async {
     setState(() => _isLoading = true);
     try {
+      // Ensure preferences are loaded if possible, or fallback
+      if (_selectedTopics.isEmpty) {
+        await _fetchUserPreferences();
+      }
+      
+      final topics = _selectedTopics.isNotEmpty ? _selectedTopics : const ['World News'];
+      debugPrint('PROV: Pulling topics from state: $topics');
+      
       final articles = await _apiService.fetchDailyDigest(
-        topics: const ['Tech', 'AI'],
+        topics: topics,
         tone: 'Casual',
       );
       if (!mounted) return;
@@ -222,6 +252,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Greeting helpers ───────────────────────────────────────────────────────
 
   String _displayName() {
+    if (_firstName != null && _firstName!.trim().isNotEmpty) {
+      return _firstName!.trim();
+    }
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return '';
     final md = user.userMetadata;
@@ -253,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   /// Full-screen immersive news card with image background + gradient overlay.
   Widget _buildArticleCard(Article article, int pageIndex) {
+    debugPrint('Building card: ${article.title} | Image: ${article.imageUrl}');
     final imageUrl  = article.imageUrl?.trim() ?? '';
     final imageUri  = Uri.tryParse(imageUrl);
     final hasImage  = imageUrl.isNotEmpty &&
@@ -343,6 +377,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 1.2,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black.withOpacity(0.5),
+                                offset: const Offset(0, 1),
+                                blurRadius: 3,
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -358,8 +399,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           height: 1.2,
                           shadows: [
                             Shadow(
-                              color: Colors.black.withOpacity(0.4),
-                              blurRadius: 8,
+                              color: Colors.black.withOpacity(0.6),
+                              offset: const Offset(0, 2),
+                              blurRadius: 6,
                             ),
                           ],
                         ),
@@ -389,12 +431,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildFallbackBg(ColorScheme cs) {
     return Container(
-      color: cs.surfaceContainerHighest,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AnonaColors.primeNavy,
+            AnonaColors.primeNavyMid,
+          ],
+        ),
+      ),
       child: Center(
         child: Icon(
           Icons.article_outlined,
           size: 64,
-          color: cs.onSurfaceVariant.withOpacity(0.3),
+          color: Colors.white.withOpacity(0.2),
         ),
       ),
     );
@@ -405,7 +456,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_isMarketLoading && _marketSnapshot.isEmpty) {
       return _buildDashboardSkeleton(AnonaColors.moneyGreen);
     }
-    if (_marketSnapshot.isEmpty) return const SizedBox.shrink();
     return AnimatedScale(
       scale: _currentPage == pageIndex ? 1.0 : 0.94,
       duration: const Duration(milliseconds: 300),
@@ -422,7 +472,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_isSportsLoading && _sportsScoreboard == null) {
       return _buildDashboardSkeleton(AnonaColors.primeNavy);
     }
-    if (_sportsScoreboard == null) return const SizedBox.shrink();
     return AnimatedScale(
       scale: _currentPage == pageIndex ? 1.0 : 0.94,
       duration: const Duration(milliseconds: 300),
@@ -551,8 +600,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final greeting = displayName.isEmpty
         ? _greetingLabel()
         : '${_greetingLabel()}, ${displayName.split(' ').first}';
-    final showStocks = _isMarketLoading || _marketSnapshot.isNotEmpty;
-    final showSports = _isSportsLoading || _sportsScoreboard != null;
+    const showStocks = true;
+    const showSports = true;
     final hasAny     = _articles.isNotEmpty || showStocks || showSports;
     final totalCount = _articles.length +
         (showStocks ? 1 : 0) +

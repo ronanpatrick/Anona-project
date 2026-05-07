@@ -36,17 +36,19 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=450, temperature=0.5)
 
-    def synthesize_story(self, reports: list[dict[str, str]], tone: str = "Professional") -> str:
+    def synthesize_topic_story(self, reports: list[dict[str, str]], topic: str, tone: str = "Professional") -> str:
         if not reports:
             raise ValueError("Cannot synthesize an empty report list")
 
         normalized_tone = tone if tone in ALLOWED_TONES else "Professional"
         combined_reports = []
         for idx, report in enumerate(reports, start=1):
+            content_type = (report.get("content_type") or "full_article").strip()
             combined_reports.append(
                 "\n".join(
                     [
                         f"[REPORT {idx}]",
+                        f"Content Type: {content_type}",
                         f"URL: {report['url']}",
                         f"Title: {report['title']}",
                         f"Publisher: {report['source']}",
@@ -57,20 +59,28 @@ class AIService:
             )
 
         reports_block = "\n\n".join(combined_reports)
+        
         prompt = (
-            "Synthesize these reports (up to 10 sources) into one cohesive, high-density story. "
+            f"You are an expert editor. Synthesize these articles into exactly ONE comprehensive briefing card about the topic: {topic}. "
+            "Mention the sources (e.g., 'According to Reuters...').\n"
+            "Inputs may include a mix of full article text and shorter search-result snippets/descriptions.\n"
+            "Reliability handling:\n"
+            "- Treat full article text as higher-confidence context.\n"
+            "- Use snippet content when full text is unavailable, but avoid overclaiming and keep wording cautious.\n"
             "Highlight unique facts from different publishers, remove repetitive filler, and ensure the tone matches the user's preference.\n"
             f"Tone preference: {normalized_tone}\n"
             "Output requirements:\n"
-            "- Return 5-8 markdown bullet points.\n"
-            "- Keep each bullet to one sentence.\n"
-            "- Attribute publisher names inline when a fact is source-specific.\n"
-            "- Focus on verifiable facts, developments, and implications.\n"
-            "- Do not invent facts or citations.\n\n"
+            "You MUST return a valid JSON object with a single key 'card'. The value of 'card' must be an object with:\n"
+            f"- 'topic': (string) {topic}\n"
+            "- 'title': (string) A catchy headline for this summary card.\n"
+            "- 'summary': (string) The actual summary text. This MUST be formatted as 1-3 markdown bullet points.\n"
+            "- 'sources': (array of strings) The publishers explicitly mentioned in the synthesis.\n"
+            "- 'urls': (array of strings) The source URLs used to synthesize this card. Must match the exact URLs provided in the reports.\n"
+            "- Do not invent facts, citations, or URLs.\n\n"
             "Reports:\n"
             f"{reports_block}"
         )
-        return self._generate(prompt, max_tokens=1200, temperature=0.4)
+        return self._generate(prompt, max_tokens=1500, temperature=0.4, json_mode=True)
 
     def summarize_deep_dive(self, text: str, tone: str = "Professional") -> str:
         if not text.strip():
@@ -122,19 +132,27 @@ class AIService:
     def deep_dive_summary(self, text: str, tone: str = "Professional") -> str:
         return self.summarize_deep_dive(text=text, tone=tone)
 
-    def _generate(self, prompt: str, max_tokens: int, temperature: float) -> str:
-        completion = self.client.chat.completions.create(
-            model=MODEL,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            messages=[
+    def _generate(self, prompt: str, max_tokens: int, temperature: float, json_mode: bool = False) -> str:
+        kwargs = {
+            "model": MODEL,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "messages": [
                 {
                     "role": "system",
-                    "content": "You are a precise news summarization assistant.",
+                    "content": (
+                        "You are a precise news summarization assistant. "
+                        "Source context may contain a mix of full articles and short snippets. "
+                        "Synthesize the best possible output from available evidence and never invent facts."
+                    ) + (" Output valid JSON." if json_mode else ""),
                 },
                 {"role": "user", "content": prompt},
             ],
-        )
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        completion = self.client.chat.completions.create(**kwargs)
 
         message = completion.choices[0].message.content if completion.choices else ""
         text = (message or "").strip()

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../screens/auth_screen.dart';
+import '../screens/main_scaffold.dart';
 import '../screens/onboarding_screen.dart';
 import '../services/auth_service.dart';
 
@@ -28,7 +29,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home',
         builder: (BuildContext context, GoRouterState state) =>
-            const _PlaceholderScreen(title: 'Home'),
+            const MainScaffold(),
       ),
       GoRoute(
         path: '/briefing',
@@ -72,7 +73,7 @@ class _AuthGateScreen extends ConsumerWidget {
             if (!hasCompletedOnboarding) {
               return const OnboardingScreen();
             }
-            return const _PlaceholderScreen(title: 'Home');
+            return const MainScaffold();
           },
         );
       },

@@ -53,24 +53,15 @@ class AuthService {
     required String userId,
     required OnboardingState preferences,
   }) {
-    final stockTickers = preferences.lifeTracking
-        .where((item) => item.toLowerCase().contains('stock'))
-        .toList();
-    final sportsTeams = preferences.lifeTracking
-        .where((item) => item.toLowerCase().contains('sport'))
-        .toList();
-    final whitelistedSources = <String>[];
-    final blacklistedSources = <String>[];
-
     return _client.from('user_preferences').upsert(
       <String, dynamic>{
         'id': userId,
+        'first_name': preferences.firstName,
         'selected_topics': preferences.topics,
-        'sports_teams': sportsTeams,
-        'stock_tickers': stockTickers,
-        'whitelisted_sources': whitelistedSources,
-        'blacklisted_sources': blacklistedSources,
-        'summary_tone': preferences.summaryTone.dbValue,
+        'whitelisted_sources': preferences.selectedSources,
+        'summary_tone': preferences.aiPersonality.dbValue,
+        'stock_tickers': preferences.stockTickers,
+        'sports_teams': preferences.sportsTeams,
         'briefing_time': preferences.briefingTime,
         'onboarding_completed': true,
         'updated_at': DateTime.now().toIso8601String(),

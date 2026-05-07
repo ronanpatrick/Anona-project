@@ -50,15 +50,18 @@ class ApiService {
   }) async {
     final uri = Uri.parse('$_baseUrl/get-daily-digest');
     final userId = _currentUserId;
+    final requestBody = <String, dynamic>{
+      if (userId != null) 'user_id': userId,
+      'selected_topics': topics,
+      'summary_tone': tone,
+    };
+    debugPrint('DEBUG: Frontend is requesting topics: ${requestBody['selected_topics']}');
     final response = await http.post(
       uri,
       headers: _authHeaders(extra: const {'Content-Type': 'application/json'}),
-      body: jsonEncode(<String, dynamic>{
-        if (userId != null) 'user_id': userId,
-        'topics': topics,
-        'tone': tone,
-      }),
+      body: jsonEncode(requestBody),
     );
+    debugPrint('DEBUG Raw News Response: ${response.body}');
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
@@ -81,16 +84,21 @@ class ApiService {
       );
     }
 
-    return articlesJson
-        .map((item) {
-          if (item is! Map<String, dynamic>) {
-            throw const FormatException(
-              'Invalid article format: expected JSON object.',
-            );
-          }
-          return Article.fromJson(item);
-        })
-        .toList(growable: false);
+    try {
+      return articlesJson
+          .map((item) {
+            if (item is! Map<String, dynamic>) {
+              throw const FormatException(
+                'Invalid article format: expected JSON object.',
+              );
+            }
+            return Article.fromJson(item);
+          })
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('DEBUG JSON Parse Error: $e');
+      rethrow;
+    }
   }
 
   Future<String> fetchDeepDive(String url) async {

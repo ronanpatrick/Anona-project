@@ -11,7 +11,7 @@ import uvicorn
 import yfinance as yf
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from supabase import Client, create_client
 
 from core.config import get_settings
@@ -44,9 +44,9 @@ app.add_middleware(
 
 
 class DailyDigestRequest(BaseModel):
-    topics: list[str]
+    selected_topics: list[str]
     user_id: str | None = None
-    tone: ToneType = "Professional"
+    summary_tone: ToneType = "Professional"
     country: str = "us"
     limit: int = Field(default=5, ge=1, le=10)
 
@@ -57,6 +57,13 @@ class ArticleSummary(BaseModel):
     urls: list[str]
     summary: str
     image_url: str | None = None
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def parse_summary(cls, value: object) -> str:
+        if isinstance(value, list):
+            return "\n".join(f"- {item}" if not str(item).startswith("-") else str(item) for item in value)
+        return str(value)
 
 
 class DigestResponse(BaseModel):
@@ -101,6 +108,7 @@ _SUPPORTED_SPORTS: dict[str, tuple[str, str]] = {
     "nfl": ("football", "nfl"),
     "mlb": ("baseball", "mlb"),
     "nhl": ("hockey", "nhl"),
+    "epl": ("soccer", "eng.1"),
 }
 _SPORT_ALIASES = {
     "basketball": "nba",
@@ -111,6 +119,9 @@ _SPORT_ALIASES = {
     "mlb": "mlb",
     "hockey": "nhl",
     "nhl": "nhl",
+    "soccer": "epl",
+    "epl": "epl",
+    "premier league": "epl",
 }
 _TEAM_SPORT_HINTS = {
     "lakers": "nba",
@@ -146,6 +157,7 @@ _STORY_STOPWORDS = {
     "were",
     "with",
 }
+_MIN_SYNTHESIS_SOURCES = 2
 
 
 def _verify_user_if_present(authorization: str | None) -> str | None:
@@ -354,7 +366,7 @@ def _normalize_team_token(value: str) -> str:
 
 def _load_user_sports_profile(user_id: str | None) -> tuple[list[str], list[str]]:
     if not user_id or not supabase_client:
-        return (["nba", "nfl"], [])
+        return (["nba", "epl"], [])
     try:
         row = (
             supabase_client.table("user_preferences")
@@ -364,15 +376,15 @@ def _load_user_sports_profile(user_id: str | None) -> tuple[list[str], list[str]
             .execute()
         )
     except Exception:
-        return (["nba", "nfl"], [])
+        return (["nba", "epl"], [])
 
     data = getattr(row, "data", None)
     if not isinstance(data, dict):
-        return (["nba", "nfl"], [])
+        return (["nba", "epl"], [])
 
     raw_sports_teams = data.get("sports_teams")
     if not isinstance(raw_sports_teams, list):
-        return (["nba", "nfl"], [])
+        return (["nba", "epl"], [])
 
     sports: list[str] = []
     seen_sports: set[str] = set()
@@ -416,7 +428,7 @@ def _load_user_sports_profile(user_id: str | None) -> tuple[list[str], list[str]
             sports.append(hinted_sport)
 
     if not sports:
-        sports = ["nba", "nfl"]
+        sports = ["nba", "epl"]
     return sports, favorite_teams
 
 
@@ -475,6 +487,8 @@ def _resolve_market_short_name(symbol: str, info: dict[str, object] | None) -> s
 
 
 def _build_market_symbols(user_tickers: list[str]) -> list[str]:
+    if not user_tickers:
+        return ["^GSPC", "^DJI", "^IXIC", "AAPL", "MSFT"]
     combined = [*_DEFAULT_MARKET_INDICES, *user_tickers]
     deduped: list[str] = []
     seen: set[str] = set()
@@ -773,6 +787,11 @@ async def _scrape_urls_parallel(
     max_articles: int,
     min_chars: int = 220,
 ) -> list[dict[str, str]]:
+    max_articles_floor = max(max_articles, 1)
+    print(
+        f"DEBUG: Scraper found {len(urls)} raw URLs before applying minimum floor logic "
+        f"(max_articles floor target={max_articles_floor})"
+    )
     unique_urls: list[str] = []
     seen_urls: set[str] = set()
     for raw_url in urls:
@@ -796,7 +815,7 @@ async def _scrape_urls_parallel(
             continue
         url, text = item
         scraped.append({"url": url, "text": text})
-        if len(scraped) >= max_articles:
+        if len(scraped) >= max_articles_floor:
             break
     return scraped
 
@@ -809,127 +828,92 @@ def _scrape_urls_parallel_bridge(
     return asyncio.run(_scrape_urls_parallel(urls=urls, max_articles=max_articles, min_chars=min_chars))
 
 
-def _build_summaries(
+def _build_topic_summary(
     articles: list[NewsArticle],
-    topics: list[str],
+    topic: str,
     tone: ToneType,
-    limit: int,
-) -> list[ArticleSummary]:
-    clusters = _cluster_by_topics(
-        articles=articles,
-        topics=topics,
-        max_clusters=limit,
-        max_sources_per_cluster=10,
-    )
-    if not clusters:
-        return []
+) -> ArticleSummary | None:
+    if not articles:
+        return None
 
-    urls_to_scrape = [article.url for _, cluster in clusters for article in cluster]
+    # Scrape all unique valid articles
+    urls_to_scrape = [article.url for article in articles]
     scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape))
     scraped_by_url = {item["url"]: item["text"] for item in scraped}
 
-    summaries: list[ArticleSummary] = []
-    for topic_name, cluster in clusters:
-        candidates: list[dict[str, str]] = []
-        for article in cluster:
-            text = scraped_by_url.get(article.url)
+    all_context_articles: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+
+    for article in articles:
+        normalized_url = article.url.strip().lower()
+        if not normalized_url or normalized_url in seen_urls:
+            continue
+            
+        text = scraped_by_url.get(article.url, "").strip()
+        content_type = "full_article"
+        if not text:
+            text = news_service.clean_text(article.description.strip())
+            content_type = "snippet"
             if not text:
                 continue
-            candidates.append(
-                {
-                    "url": article.url,
-                    "title": article.title,
-                    "source": article.source.strip() or "Unknown",
-                    "image_url": article.image_url.strip(),
-                    "text": text,
-                }
-            )
 
-        reports: list[dict[str, str]] = []
-        seen_urls: set[str] = set()
-        seen_sources: set[str] = set()
-        for item in candidates:
-            normalized_url = item["url"].strip().lower()
-            normalized_source = item["source"].strip().lower()
-            if not normalized_url or normalized_url in seen_urls or normalized_source in seen_sources:
-                continue
-            seen_urls.add(normalized_url)
-            seen_sources.add(normalized_source)
-            reports.append(item)
-            if len(reports) >= 10:
-                break
-
-        if len(reports) < 10:
-            for item in candidates:
-                normalized_url = item["url"].strip().lower()
-                if not normalized_url or normalized_url in seen_urls:
-                    continue
-                seen_urls.add(normalized_url)
-                reports.append(item)
-                if len(reports) >= 10:
-                    break
-
-        if not reports:
-            continue
-
-        print(f"Grouping {topic_name}: found {len(reports)} articles for synthesis.")
-        summary = ai_service.synthesize_story(reports=reports, tone=tone)
-        sources: list[str] = []
-        source_seen: set[str] = set()
-        for report in reports:
-            source = report["source"].strip()
-            normalized_source = source.lower()
-            if not source or normalized_source in source_seen:
-                continue
-            source_seen.add(normalized_source)
-            sources.append(source)
-
-        urls: list[str] = []
-        url_seen: set[str] = set()
-        for report in reports:
-            url = report["url"].strip()
-            normalized_url = url.lower()
-            if not url or normalized_url in url_seen:
-                continue
-            url_seen.add(normalized_url)
-            urls.append(url)
-
-        if len(sources) < 2 and len(candidates) > len(reports):
-            for item in candidates:
-                source = item["source"].strip()
-                normalized_source = source.lower()
-                if not source or normalized_source in source_seen:
-                    continue
-                source_seen.add(normalized_source)
-                sources.append(source)
-                if len(sources) >= 2:
-                    break
-
-        image_url: str | None = None
-        for item in reports:
-            candidate_url = item.get("image_url", "").strip()
-            has_valid_scheme = candidate_url.startswith(("http://", "https://"))
-            if has_valid_scheme:
-                image_url = candidate_url
-                break
-        if image_url is None:
-            for item in candidates:
-                candidate_url = item.get("image_url", "").strip()
-                has_valid_scheme = candidate_url.startswith(("http://", "https://"))
-                if has_valid_scheme:
-                    image_url = candidate_url
-                    break
-
-        summaries.append(
-            ArticleSummary(
-                title=cluster[0].title,
-                sources=sources,
-                urls=urls,
-                summary=summary,
-                image_url=image_url,
-            )
+        seen_urls.add(normalized_url)
+        all_context_articles.append(
+            {
+                "url": article.url,
+                "title": article.title,
+                "source": article.source.strip() or "Unknown",
+                "image_url": article.image_url.strip(),
+                "text": text,
+                "topic": topic,
+                "content_type": content_type,
+            }
         )
-    return summaries
+
+    if not all_context_articles:
+        return None
+
+    print(f"DEBUG: Successfully gathered {len(all_context_articles)} articles for topic {topic}.")
+    
+    # Generate the cards via Groq JSON
+    try:
+        import json
+        llm_response = ai_service.synthesize_topic_story(reports=all_context_articles, topic=topic, tone=tone)
+        parsed = json.loads(llm_response)
+        card = parsed.get("card")
+        if not card:
+            return None
+    except Exception as exc:
+        print(f"DEBUG: Failed to parse LLM JSON or generate story for {topic}: {exc}")
+        return None
+
+    card_title = card.get("title", "Daily Update")
+    card_summary = card.get("summary", "")
+    if isinstance(card_summary, list):
+        card_summary = "\n".join(f"- {item}" if not str(item).startswith("-") else str(item) for item in card_summary)
+    card_urls = card.get("urls", [])
+    
+    # Match back to reports to get sources and image_url
+    card_sources = card.get("sources", [])
+    image_url = None
+    for curl in card_urls:
+        for rep in all_context_articles:
+            if rep["url"].strip().lower() == curl.strip().lower():
+                if rep["source"] not in card_sources:
+                    card_sources.append(rep["source"])
+                if not image_url and rep["image_url"]:
+                    image_url = rep["image_url"]
+                    
+    if not card_sources:
+        card_sources = ["News"]
+        
+    return ArticleSummary(
+        title=card_title,
+        sources=card_sources,
+        urls=card_urls,
+        summary=card_summary,
+        image_url=image_url,
+    )
 
 
 def _friendly_empty_digest() -> DigestResponse:
@@ -947,6 +931,17 @@ def _friendly_empty_digest() -> DigestResponse:
     )
 
 
+def _debug_log_digest_return(
+    *,
+    final_digest_list: list[ArticleSummary],
+    payload_topics: list[str],
+    payload_user_id: str | None,
+) -> None:
+    print(f"DEBUG: Returning {len(final_digest_list)} articles to frontend")
+    if not final_digest_list:
+        print(f"DEBUG: Empty digest payload received. topics={payload_topics}, user_id={payload_user_id}")
+
+
 @app.get("/health", tags=["health"])
 def health_check() -> dict[str, str | bool]:
     return {"status": "ok", "supabase_configured": bool(supabase_client)}
@@ -958,45 +953,72 @@ def get_daily_digest(
     authorization: str | None = Header(default=None),
     user_id: str | None = Query(default=None),
 ) -> DigestResponse:
+    print(f"DEBUG: Backend received topics: {request.selected_topics}")
     user_id = _resolve_digest_user_id(request.user_id, authorization, query_user_id=user_id)
     current_date = _today_digest_date()
     cached_digest = _get_cached_daily_digest(user_id=user_id, current_date=current_date)
     if cached_digest:
+        _debug_log_digest_return(
+            final_digest_list=cached_digest.articles,
+            payload_topics=request.selected_topics,
+            payload_user_id=request.user_id,
+        )
         return cached_digest
 
-    if not request.topics:
-        raise HTTPException(status_code=400, detail="Topics list cannot be empty")
+    if not request.selected_topics:
+        request.selected_topics = ["World News", "Science"]
 
-    try:
-        articles = news_service.fetch_news(
-            topics=request.topics,
-            country=request.country,
-            limit=50,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    topics_to_process = request.selected_topics[:5]
+    final_digest_list: list[ArticleSummary] = []
 
-    try:
-        summaries = _build_summaries(
-            articles=articles,
-            topics=request.topics,
-            tone=request.tone,
-            limit=request.limit,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
-    digest_response = (
-        DigestResponse(articles=summaries, count=len(summaries)) if summaries else _friendly_empty_digest()
-    )
+    for topic in topics_to_process:
+        try:
+            articles = news_service.fetch_news(
+                topics=[topic],
+                country=request.country,
+                limit=3,
+            )
+            if not articles:
+                print(f"DEBUG: No news found for {topic}")
+                continue
+
+            summary = _build_topic_summary(
+                articles=articles,
+                topic=topic,
+                tone=request.summary_tone,
+            )
+            if summary:
+                final_digest_list.append(summary)
+            else:
+                print(f"DEBUG: No news found for {topic}")
+        except Exception as exc:
+            print(f"DEBUG: Failed to process topic {topic}: {exc}")
+            continue
+
+    if final_digest_list:
+        print(f"DEBUG: Successfully generated {len(final_digest_list)} topic cards.")
+        digest_response = DigestResponse(articles=final_digest_list, count=len(final_digest_list))
+    else:
+        digest_response = _friendly_empty_digest()
 
     try:
         _store_daily_digest(user_id=user_id, current_date=current_date, digest=digest_response)
     except HTTPException as cache_write_error:
         cached_after_write_failure = _get_cached_daily_digest(user_id=user_id, current_date=current_date)
         if cached_after_write_failure:
+            _debug_log_digest_return(
+                final_digest_list=cached_after_write_failure.articles,
+                payload_topics=request.selected_topics,
+                payload_user_id=request.user_id,
+            )
             return cached_after_write_failure
         raise cache_write_error
 
+    _debug_log_digest_return(
+        final_digest_list=digest_response.articles,
+        payload_topics=request.selected_topics,
+        payload_user_id=request.user_id,
+    )
     return digest_response
 
 
@@ -1038,14 +1060,8 @@ def get_discovery_news(
     combined_excluded_topics = _normalize_topic_terms([*(excluded_topics or []), *user_excluded_topics])
 
     discovery_queries = [
-        "top headlines",
-        "breaking news",
-        "world",
-        "innovation",
-        "science discovery",
-        "space",
-        "global economy",
-        "public health",
+        "Top World News",
+        "Global Headlines",
     ]
 
     try:
@@ -1057,7 +1073,8 @@ def get_discovery_news(
             discovery=True,
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        print(f"DEBUG: Discovery endpoint caught exception: {exc}")
+        articles = []
 
     if not articles:
         _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=[])

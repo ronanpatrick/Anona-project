@@ -112,13 +112,15 @@ class _BriefingScreenState extends State<BriefingScreen> {
     });
 
     try {
-      final discoveryExclusions = await _loadDiscoveryExclusions();
+      final topics = await _loadDiscoveryExclusions();
+      debugPrint('PROV: Pulling topics from state: $topics');
+      
       final digestFuture = _apiService.fetchDailyDigest(
-        topics: const <String>['Tech', 'AI'],
+        topics: topics,
         tone: 'Casual',
       );
       final discoveryFuture = _apiService.fetchDiscoveryNews(
-        excludedTopics: discoveryExclusions,
+        excludedTopics: topics,
       );
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
         digestFuture,
@@ -149,7 +151,7 @@ class _BriefingScreenState extends State<BriefingScreen> {
   }
 
   Future<List<String>> _loadDiscoveryExclusions() async {
-    final defaults = <String>['Tech', 'AI'];
+    final defaults = <String>['World News'];
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       return defaults;

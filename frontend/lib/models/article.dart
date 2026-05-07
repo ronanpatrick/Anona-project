@@ -16,12 +16,21 @@ class Article {
   final String? publishedAt;
 
   factory Article.fromJson(Map<String, dynamic> json) {
+    final titleRaw = json['title'] as String?;
+    final title = (titleRaw != null && titleRaw.trim().isNotEmpty) ? titleRaw : 'Untitled';
+
+    final summaryRaw = json['summary'] as String?;
+    final summary = (summaryRaw != null && summaryRaw.trim().isNotEmpty) ? summaryRaw : 'No summary available.';
+
+    final imageUrlRaw = json['image_url'] ?? json['imageUrl'];
+    final imageUrl = _parseOptionalString(imageUrlRaw) ?? '';
+
     return Article(
-      title: json['title'] as String? ?? '',
+      title: title,
       sources: _parseStringList(json['sources'] ?? json['source']),
       urls: _parseStringList(json['urls'] ?? json['url']),
-      summary: json['summary'] as String? ?? '',
-      imageUrl: _parseOptionalString(json['image_url'] ?? json['imageUrl']),
+      summary: summary,
+      imageUrl: imageUrl,
       publishedAt: _parseOptionalString(
         json['published_at'] ?? json['publishedAt'] ?? json['date'],
       ),

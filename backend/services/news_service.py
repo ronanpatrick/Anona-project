@@ -9,12 +9,16 @@ import trafilatura
 
 from core.config import Settings
 
+NEWSDATA_MAX_SIZE = 10
+NEWSAPI_MAX_PAGE_SIZE = 10
+
 
 @dataclass
 class NewsArticle:
     title: str
     url: str
     source: str
+    topic: str = ""
     description: str = ""
     published_at: str = ""
     image_url: str = ""
@@ -107,87 +111,126 @@ class NewsService:
         flattened = re.sub(r"\s+", " ", text).strip()
         return flattened
 
+
+
     def _fetch_newsdata(self, topics: list[str], country: str, limit: int) -> list[NewsArticle]:
         articles: list[NewsArticle] = []
         topics_to_search = [topic.strip() for topic in topics if topic and topic.strip()]
         if not topics_to_search:
             return []
 
-        # NewsData free tier rejects larger sizes and can return 422 for malformed boolean query strings.
-        # Query each topic independently so requests handles URL encoding for each term safely.
-        size = min(max(limit, 1), 5)
+        size = NEWSDATA_MAX_SIZE
 
         for topic in topics_to_search:
             try:
+                print(f"DEBUG: Attempting to call News API for topic: {topic}")
                 response = requests.get(
                     "https://newsdata.io/api/1/news",
                     params={
                         "apikey": self.settings.newsdata_api_key,
-                        "q": topic,
-                        "country": country,
+                        "q": f"{topic} news",
+                        "prioritydomain": "top",
                         "language": "en",
                         "size": size,
                     },
                     timeout=self.timeout,
                 )
+                print(f"DEBUG API Status: {response.status_code} - {response.text}")
                 response.raise_for_status()
                 payload = response.json()
-            except requests.RequestException:
-                continue
-            except ValueError:
+            except Exception as e:
+                import traceback
+
+                print(f"DEBUG API Exception: {e}")
+                traceback.print_exc()
                 continue
 
             if payload.get("status") != "success":
                 continue
 
-            for item in payload.get("results", []):
-                url = (item.get("link") or "").strip()
-                if not url:
+            raw_search_results = payload.get("results", [])
+            trusted_articles: list[NewsArticle] = []
+            for item in raw_search_results:
+                article_url = (item.get("link") or "").strip()
+                if not article_url:
                     continue
-                articles.append(
-                    NewsArticle(
-                        title=(item.get("title") or "Untitled").strip(),
-                        url=url,
-                        source=(item.get("source_id") or "NewsData").strip(),
-                        description=(item.get("description") or "").strip(),
-                        published_at=(item.get("pubDate") or "").strip(),
-                        image_url=(item.get("image_url") or "").strip(),
-                    )
+                candidate_article = NewsArticle(
+                    title=(item.get("title") or "Untitled").strip(),
+                    url=article_url,
+                    source=(item.get("source_id") or "NewsData").strip(),
+                    topic=topic,
+                    description=(item.get("description") or "").strip(),
+                    published_at=(item.get("pubDate") or "").strip(),
+                    image_url=(item.get("image_url") or "").strip(),
                 )
+                if "transcript" in article_url.lower() or "earnings" in candidate_article.title.lower():
+                    print(f"DEBUG: Rejecting junk source: {article_url}")
+                    continue
+                trusted_articles.append(candidate_article)
+                if len(trusted_articles) >= 3:
+                    break
+            print(f"DEBUG: Filtered down to {len(trusted_articles)} trusted sources from {len(raw_search_results)} raw results.")
+            articles.extend(trusted_articles)
         return articles
 
     def _fetch_newsapi(self, topics: list[str], country: str, limit: int) -> list[NewsArticle]:
-        response = requests.get(
-            "https://newsapi.org/v2/top-headlines",
-            params={
-                "apiKey": self.settings.newsapi_api_key,
-                "q": " OR ".join(topics),
-                "country": country,
-                "pageSize": min(max(limit, 10), 100),
-            },
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get("status") != "ok":
+        articles: list[NewsArticle] = []
+        topics_to_search = [topic.strip() for topic in topics if topic and topic.strip()]
+        if not topics_to_search:
             return []
 
-        articles: list[NewsArticle] = []
-        for item in payload.get("articles", []):
-            url = (item.get("url") or "").strip()
-            if not url:
+        page_size = NEWSAPI_MAX_PAGE_SIZE
+        for topic in topics_to_search:
+            try:
+                print(f"DEBUG: Attempting to call News API for topic: {topic}")
+                response = requests.get(
+                    "https://newsapi.org/v2/everything",
+                    params={
+                        "apiKey": self.settings.newsapi_api_key,
+                        "q": f"{topic} news",
+
+                        "language": "en",
+                        "sortBy": "publishedAt",
+                        "pageSize": min(page_size, 100),
+                    },
+                    timeout=self.timeout,
+                )
+                print(f"DEBUG API Status: {response.status_code} - {response.text}")
+                response.raise_for_status()
+                payload = response.json()
+            except Exception as e:
+                import traceback
+
+                print(f"DEBUG API Exception: {e}")
+                traceback.print_exc()
                 continue
-            source = item.get("source") or {}
-            articles.append(
-                NewsArticle(
+            if payload.get("status") != "ok":
+                continue
+
+            raw_search_results = payload.get("articles", [])
+            trusted_articles: list[NewsArticle] = []
+            for item in raw_search_results:
+                article_url = (item.get("url") or "").strip()
+                if not article_url:
+                    continue
+                source = item.get("source") or {}
+                candidate_article = NewsArticle(
                     title=(item.get("title") or "Untitled").strip(),
-                    url=url,
+                    url=article_url,
                     source=(source.get("name") or "NewsAPI").strip(),
+                    topic=topic,
                     description=(item.get("description") or "").strip(),
                     published_at=(item.get("publishedAt") or "").strip(),
                     image_url=(item.get("urlToImage") or "").strip(),
                 )
-            )
+                if "transcript" in article_url.lower() or "earnings" in candidate_article.title.lower():
+                    print(f"DEBUG: Rejecting junk source: {article_url}")
+                    continue
+                trusted_articles.append(candidate_article)
+                if len(trusted_articles) >= 3:
+                    break
+            print(f"DEBUG: Filtered down to {len(trusted_articles)} trusted sources from {len(raw_search_results)} raw results.")
+            articles.extend(trusted_articles)
         return articles
 
     @staticmethod
