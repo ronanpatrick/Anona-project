@@ -16,7 +16,7 @@ class ApiService {
   SupabaseClient get _supabase => Supabase.instance.client;
 
   String get _baseUrl {
-    return 'https://anona-backend.onrender.com';
+    return 'https://anona-project.onrender.com';
   }
 
   Map<String, String> _authHeaders({Map<String, String>? extra}) {
