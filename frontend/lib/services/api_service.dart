@@ -16,15 +16,7 @@ class ApiService {
   SupabaseClient get _supabase => Supabase.instance.client;
 
   String get _baseUrl {
-    if (platform_info.isAndroid) {
-      return 'http://10.0.2.2:8000';
-    }
-
-    if (kIsWeb || platform_info.isIOS) {
-      return 'http://127.0.0.1:8000';
-    }
-
-    return 'http://127.0.0.1:8000';
+    return 'https://anona-backend.onrender.com';
   }
 
   Map<String, String> _authHeaders({Map<String, String>? extra}) {
