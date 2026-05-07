@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -520,25 +519,30 @@ class _Step5Dashboards extends ConsumerStatefulWidget {
   ConsumerState<_Step5Dashboards> createState() => _Step5DashboardsState();
 }
 
-class _Step5DashboardsState extends ConsumerState<_Step5Dashboards> {
+class _Step5DashboardsState extends ConsumerState<_Step5Dashboards>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   final TextEditingController _stockController = TextEditingController();
-  final TextEditingController _sportsController = TextEditingController();
+  String _selectedLeague = 'NBA';
+  String _stockQuery = '';
 
-  void _addStock() {
-    ref.read(onboardingProvider.notifier).addStockTicker(_stockController.text);
-    _stockController.clear();
-  }
-
-  void _addSport() {
-    ref.read(onboardingProvider.notifier).addSportsTeam(_sportsController.text);
-    _sportsController.clear();
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _stockController.dispose();
-    _sportsController.dispose();
     super.dispose();
+  }
+
+  void _addStock() {
+    ref.read(onboardingProvider.notifier).addStockTicker(_stockController.text);
+    _stockController.clear();
+    setState(() => _stockQuery = '');
   }
 
   @override
@@ -546,135 +550,446 @@ class _Step5DashboardsState extends ConsumerState<_Step5Dashboards> {
     final tt = Theme.of(context).textTheme;
     final cs = Theme.of(context).colorScheme;
     final state = ref.watch(onboardingProvider);
+    final totalSelected = state.sportsTeams.length + state.stockTickers.length;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+          child: Row(
             children: [
               Expanded(
-                child: Text(
-                  'Track your world.',
-                  style: tt.headlineMedium,
-                ).animate().fadeIn().slideY(begin: 0.1),
+                child: Text('Track your world.', style: tt.headlineMedium)
+                    .animate().fadeIn().slideY(begin: 0.1),
               ),
               TextButton(
                 onPressed: widget.onNext,
-                style: TextButton.styleFrom(
-                  foregroundColor: cs.onSurfaceVariant,
-                ),
-                child: const Text('Skip for now'),
-              ).animate().fadeIn(delay: 200.ms),
+                style: TextButton.styleFrom(foregroundColor: cs.onSurfaceVariant),
+                child: const Text('Skip'),
+              ),
             ],
           ),
-          const SizedBox(height: 32),
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Stocks
-                  Text('Stocks & Crypto', style: tt.titleLarge),
-                  const SizedBox(height: 12),
-                  _buildInputField(
-                    controller: _stockController,
-                    hint: 'e.g. AAPL, BTC',
-                    onSubmitted: (_) => _addStock(),
-                    icon: Icons.show_chart_rounded,
-                  ).animate().fadeIn(delay: 100.ms),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: state.stockTickers.map((t) => _DeletableChip(
-                      label: t,
-                      onDeleted: () => ref.read(onboardingProvider.notifier).removeStockTicker(t),
-                    )).toList(),
-                  ),
-                  const SizedBox(height: 40),
-                  
-                  // Sports
-                  Text('Sports Teams', style: tt.titleLarge),
-                  const SizedBox(height: 12),
-                  _buildInputField(
-                    controller: _sportsController,
-                    hint: 'e.g. Lakers, Arsenal',
-                    onSubmitted: (_) => _addSport(),
-                    icon: Icons.sports_basketball_rounded,
-                  ).animate().fadeIn(delay: 200.ms),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: state.sportsTeams.map((t) => _DeletableChip(
-                      label: t,
-                      onDeleted: () => ref.read(onboardingProvider.notifier).removeSportsTeam(t),
-                    )).toList(),
-                  ),
-                ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          child: Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: cs.primary,
+                borderRadius: BorderRadius.circular(10),
               ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              labelColor: cs.onPrimary,
+              unselectedLabelColor: cs.onSurfaceVariant,
+              labelStyle: tt.labelLarge,
+              tabs: const [Tab(text: '🏆  Sports'), Tab(text: '📈  Stocks')],
             ),
           ),
-          _FooterActions(onNext: widget.onNext, onBack: widget.onBack),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputField({
-    required TextEditingController controller, 
-    required String hint, 
-    required Function(String) onSubmitted,
-    required IconData icon,
-  }) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    
-    return TextField(
-      controller: controller,
-      onSubmitted: onSubmitted,
-      decoration: InputDecoration(
-        hintText: hint,
-        hintStyle: TextStyle(color: cs.onSurfaceVariant),
-        prefixIcon: Icon(icon, color: cs.onSurfaceVariant),
-        suffixIcon: IconButton(
-          icon: Icon(Icons.add_circle_rounded, color: cs.primary),
-          onPressed: () => onSubmitted(controller.text),
         ),
-        filled: true,
-        fillColor: isDark ? cs.surfaceContainerHighest : Colors.grey.shade100,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _SportsTab(
+                selectedLeague: _selectedLeague,
+                onLeagueChanged: (l) => setState(() => _selectedLeague = l),
+              ),
+              _StocksTab(
+                searchController: _stockController,
+                query: _stockQuery,
+                onQueryChanged: (q) => setState(() => _stockQuery = q),
+                onAddStock: _addStock,
+              ),
+            ],
+          ),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16),
-      ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back),
+                padding: const EdgeInsets.all(16),
+                style: IconButton.styleFrom(backgroundColor: cs.surfaceContainerHighest),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: FilledButton(
+                  onPressed: widget.onNext,
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 20)),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Text(
+                      totalSelected > 0 ? 'Continue ($totalSelected Selected)' : 'Continue',
+                      key: ValueKey(totalSelected),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _DeletableChip extends StatelessWidget {
-  const _DeletableChip({required this.label, required this.onDeleted});
-  final String label;
-  final VoidCallback onDeleted;
+// ── Sports Tab ────────────────────────────────────────────────────────────────
+class _SportsTab extends ConsumerWidget {
+  const _SportsTab({required this.selectedLeague, required this.onLeagueChanged});
+  final String selectedLeague;
+  final ValueChanged<String> onLeagueChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final state = ref.watch(onboardingProvider);
+    final teams = leagueTeams[selectedLeague] ?? [];
+
+    return Column(
+      children: [
+        // League pills
+        SizedBox(
+          height: 52,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            itemCount: sportsLeagues.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) {
+              final league = sportsLeagues[i];
+              final active = league == selectedLeague;
+              return GestureDetector(
+                onTap: () => onLeagueChanged(league),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: active ? AnonaColors.liveOrange : cs.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(
+                      color: active ? AnonaColors.liveOrange : cs.outline.withOpacity(0.4),
+                    ),
+                  ),
+                  child: Text(
+                    league,
+                    style: tt.labelLarge?.copyWith(
+                      color: active ? Colors.white : cs.onSurfaceVariant,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        // Selected strip
+        if (state.sportsTeams.isNotEmpty)
+          _SelectedStrip(
+            items: state.sportsTeams,
+            accentColor: AnonaColors.liveOrange,
+            onRemove: (t) => ref.read(onboardingProvider.notifier).removeSportsTeam(t),
+          ),
+        // Team grid
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+            physics: const BouncingScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 2.4,
+            ),
+            itemCount: teams.length,
+            itemBuilder: (_, i) {
+              final team = teams[i];
+              final isSelected = state.sportsTeams.contains(team);
+              return GestureDetector(
+                onTap: () {
+                  if (isSelected) {
+                    ref.read(onboardingProvider.notifier).removeSportsTeam(team);
+                  } else {
+                    ref.read(onboardingProvider.notifier).addSportsTeam(team);
+                  }
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AnonaColors.liveOrange.withOpacity(0.12)
+                        : cs.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? AnonaColors.liveOrange : cs.outline.withOpacity(0.3),
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      if (isSelected) ...[  
+                        Icon(Icons.check_circle_rounded, color: AnonaColors.liveOrange, size: 16),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          team,
+                          overflow: TextOverflow.ellipsis,
+                          style: tt.labelLarge?.copyWith(
+                            color: isSelected ? AnonaColors.liveOrange : cs.onSurface,
+                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ).animate().fadeIn(delay: (i * 25).ms);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Stocks Tab ────────────────────────────────────────────────────────────────
+class _StocksTab extends ConsumerWidget {
+  const _StocksTab({
+    required this.searchController,
+    required this.query,
+    required this.onQueryChanged,
+    required this.onAddStock,
+  });
+  final TextEditingController searchController;
+  final String query;
+  final ValueChanged<String> onQueryChanged;
+  final VoidCallback onAddStock;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final state = ref.watch(onboardingProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final filtered = query.isEmpty
+        ? <String>[]
+        : popularStocks.where((s) => s.toLowerCase().contains(query.toLowerCase())).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+          child: TextField(
+            controller: searchController,
+            onChanged: onQueryChanged,
+            onSubmitted: (_) => onAddStock(),
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              hintText: 'Search companies or symbols...',
+              hintStyle: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              prefixIcon: Icon(Icons.search_rounded, color: cs.onSurfaceVariant),
+              suffixIcon: query.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.add_circle_rounded, color: AnonaColors.moneyGreen),
+                      onPressed: onAddStock,
+                    )
+                  : null,
+              filled: true,
+              fillColor: isDark ? AnonaColors.surfaceDark2 : Colors.grey.shade100,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ),
+        if (state.stockTickers.isNotEmpty)
+          _SelectedStrip(
+            items: state.stockTickers,
+            accentColor: AnonaColors.moneyGreen,
+            onRemove: (t) => ref.read(onboardingProvider.notifier).removeStockTicker(t),
+          ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: query.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Popular', style: tt.labelMedium),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: popularStocks.map((ticker) {
+                          final isSelected = state.stockTickers.contains(ticker);
+                          return GestureDetector(
+                            onTap: () {
+                              if (isSelected) {
+                                ref.read(onboardingProvider.notifier).removeStockTicker(ticker);
+                              } else {
+                                ref.read(onboardingProvider.notifier).addStockTicker(ticker);
+                              }
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AnonaColors.moneyGreen.withOpacity(0.12)
+                                    : cs.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(100),
+                                border: Border.all(
+                                  color: isSelected ? AnonaColors.moneyGreen : cs.outline.withOpacity(0.3),
+                                  width: isSelected ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isSelected) ...[  
+                                    const Icon(Icons.check_rounded, color: AnonaColors.moneyGreen, size: 14),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    ticker,
+                                    style: tt.labelLarge?.copyWith(
+                                      color: isSelected ? AnonaColors.moneyGreen : cs.onSurface,
+                                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ).animate().fadeIn(delay: (popularStocks.indexOf(ticker) * 25).ms);
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  itemCount: filtered.isEmpty ? 1 : filtered.length,
+                  itemBuilder: (_, i) {
+                    if (filtered.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 24),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.add_circle_outline, color: AnonaColors.moneyGreen, size: 40),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Add "${query.toUpperCase()}"',
+                              style: tt.titleMedium?.copyWith(color: AnonaColors.moneyGreen),
+                            ),
+                            const SizedBox(height: 4),
+                            Text('Tap + to add this symbol', style: tt.bodySmall),
+                          ],
+                        ),
+                      );
+                    }
+                    final ticker = filtered[i];
+                    final isSelected = state.stockTickers.contains(ticker);
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        width: 44, height: 44,
+                        decoration: BoxDecoration(
+                          color: AnonaColors.moneyGreen.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.show_chart_rounded, color: AnonaColors.moneyGreen, size: 20),
+                      ),
+                      title: Text(ticker, style: tt.titleSmall),
+                      trailing: Icon(
+                        isSelected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                        color: isSelected ? AnonaColors.moneyGreen : cs.onSurfaceVariant,
+                      ),
+                      onTap: () {
+                        if (isSelected) {
+                          ref.read(onboardingProvider.notifier).removeStockTicker(ticker);
+                        } else {
+                          ref.read(onboardingProvider.notifier).addStockTicker(ticker);
+                        }
+                      },
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Selected strip ────────────────────────────────────────────────────────────
+class _SelectedStrip extends StatelessWidget {
+  const _SelectedStrip({required this.items, required this.accentColor, required this.onRemove});
+  final List<String> items;
+  final Color accentColor;
+  final ValueChanged<String> onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Chip(
-      label: Text(label),
-      deleteIcon: const Icon(Icons.close, size: 18),
-      onDeleted: onDeleted,
-      backgroundColor: cs.primary.withOpacity(0.1),
-      labelStyle: TextStyle(color: cs.primary, fontWeight: FontWeight.w600),
-      side: BorderSide.none,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-    ).animate().scale(duration: 200.ms);
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: accentColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accentColor.withOpacity(0.25)),
+      ),
+      child: SizedBox(
+        height: 32,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: items.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 6),
+          itemBuilder: (_, i) {
+            final item = items[i];
+            return GestureDetector(
+              onTap: () => onRemove(item),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: accentColor.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item,
+                      style: tt.labelMedium?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.close, size: 12, color: accentColor),
+                  ],
+                ),
+              ).animate().scale(duration: 150.ms),
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 

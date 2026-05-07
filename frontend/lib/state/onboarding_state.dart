@@ -26,6 +26,49 @@ const List<String> onboardingSources = <String>[
   'NPR',
 ];
 
+// ── Sports: League → Teams map ─────────────────────────────────────────────────
+const List<String> sportsLeagues = ['NBA', 'NFL', 'MLB', 'NHL', 'EPL'];
+
+const Map<String, List<String>> leagueTeams = {
+  'NBA': [
+    'Los Angeles Lakers', 'Golden State Warriors', 'Boston Celtics',
+    'Miami Heat', 'Chicago Bulls', 'Brooklyn Nets',
+    'Dallas Mavericks', 'Denver Nuggets', 'Phoenix Suns',
+    'Milwaukee Bucks', 'Toronto Raptors', 'New York Knicks',
+  ],
+  'NFL': [
+    'Kansas City Chiefs', 'San Francisco 49ers', 'Dallas Cowboys',
+    'New England Patriots', 'Green Bay Packers', 'Philadelphia Eagles',
+    'Buffalo Bills', 'Baltimore Ravens', 'Las Vegas Raiders',
+    'Los Angeles Rams', 'Seattle Seahawks', 'Miami Dolphins',
+  ],
+  'MLB': [
+    'New York Yankees', 'Los Angeles Dodgers', 'Boston Red Sox',
+    'Chicago Cubs', 'Houston Astros', 'Atlanta Braves',
+    'San Francisco Giants', 'St. Louis Cardinals', 'New York Mets',
+    'Toronto Blue Jays', 'Philadelphia Phillies', 'Seattle Mariners',
+  ],
+  'NHL': [
+    'Toronto Maple Leafs', 'Montreal Canadiens', 'Boston Bruins',
+    'New York Rangers', 'Colorado Avalanche', 'Vegas Golden Knights',
+    'Chicago Blackhawks', 'Edmonton Oilers', 'Pittsburgh Penguins',
+    'Tampa Bay Lightning', 'Detroit Red Wings', 'Dallas Stars',
+  ],
+  'EPL': [
+    'Arsenal', 'Chelsea', 'Liverpool',
+    'Manchester City', 'Manchester United', 'Tottenham Hotspur',
+    'Newcastle United', 'Aston Villa', 'Brighton & Hove Albion',
+    'West Ham United', 'Everton', 'Leicester City',
+  ],
+};
+
+// ── Popular stock tickers ──────────────────────────────────────────────────────
+const List<String> popularStocks = [
+  'AAPL', 'MSFT', 'TSLA', 'NVDA', 'AMZN',
+  'GOOGL', 'META', 'BRK.B', '^GSPC', '^DJI',
+  'NFLX', 'AMD', 'UBER', 'JPM', 'V',
+];
+
 // ── AI Personality ─────────────────────────────────────────────────────────────
 enum AiPersonality {
   executive,

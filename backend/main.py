@@ -221,7 +221,8 @@ def _get_cached_daily_digest(user_id: str, current_date: str) -> DigestResponse 
             .execute()
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Daily digest cache lookup failed: {exc}") from exc
+        print(f"DEBUG: Daily digest cache lookup failed: {exc}")
+        return None
 
     row = getattr(result, "data", None)
     if not isinstance(row, dict):
@@ -251,7 +252,7 @@ def _store_daily_digest(user_id: str, current_date: str, digest: DigestResponse)
     try:
         client.table("daily_digests").insert(payload).execute()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Daily digest cache write failed: {exc}") from exc
+        print(f"DEBUG: Daily digest cache write failed: {exc}")
 
 
 def _article_summary_json(article: ArticleSummary) -> dict:
@@ -272,7 +273,8 @@ def _get_cached_daily_discovery(user_id: str, current_date: str) -> list[Article
             .execute()
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Daily discovery cache lookup failed: {exc}") from exc
+        print(f"DEBUG: Daily discovery cache lookup failed: {exc}")
+        return None
 
     row = getattr(result, "data", None)
     if not isinstance(row, dict):
@@ -296,7 +298,7 @@ def _store_daily_discovery(user_id: str, current_date: str, discovery: list[Arti
     try:
         client.table("daily_discovery").insert(payload).execute()
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Daily discovery cache write failed: {exc}") from exc
+        print(f"DEBUG: Daily discovery cache write failed: {exc}")
 
 
 def _normalize_topic_terms(items: list[str] | None) -> list[str]:
