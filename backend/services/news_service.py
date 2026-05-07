@@ -28,6 +28,7 @@ class NewsService:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.timeout = settings.request_timeout_seconds
+        self._news_cache: dict[str, tuple[float, list[NewsArticle]]] = {}
 
     def fetch_news(
         self,
@@ -44,6 +45,14 @@ class NewsService:
 
         query_topics = topics or ["trending", "breaking", "innovation", "world"]
         exclude_topics = [item.strip().lower() for item in (exclude_topics or []) if item]
+        
+        cache_key = f"{','.join(sorted(query_topics))}|{country}|{limit}|{discovery}"
+        import time
+        if cache_key in self._news_cache:
+            timestamp, cached_articles = self._news_cache[cache_key]
+            if time.time() - timestamp < 3600:
+                filtered = self._exclude_topics(cached_articles, exclude_topics)
+                return filtered[:limit]
 
         combined: list[NewsArticle] = []
         if self.settings.newsdata_api_key:
@@ -61,6 +70,7 @@ class NewsService:
             return []
 
         deduped = self._dedupe_by_url(combined)
+        self._news_cache[cache_key] = (time.time(), deduped)
         filtered = self._exclude_topics(deduped, exclude_topics)
         return filtered[:limit]
 

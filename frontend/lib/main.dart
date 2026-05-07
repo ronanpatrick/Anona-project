@@ -13,15 +13,24 @@ import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  debugPrint('DEBUG: Starting Anona initialization...');
 
-  await dotenv.load(fileName: '.env');
+  try {
+    await dotenv.load(fileName: '.env');
+    debugPrint('DEBUG: Dotenv loaded.');
+  } catch (e) {
+    debugPrint('DEBUG: Dotenv load failed (falling back to platform env): $e');
+  }
 
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL'] ?? '',
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );
+  debugPrint('DEBUG: Supabase initialized.');
 
-  await NotificationService().init();
+  final notificationService = NotificationService();
+  await notificationService.init();
+  debugPrint('DEBUG: Notification service init completed.');
 
   runApp(
     ProviderScope(
@@ -31,6 +40,9 @@ Future<void> main() async {
       ),
     ),
   );
+  
+  // Request permissions in the background after startup
+  notificationService.requestPermissions();
 }
 
 class AnonaApp extends StatelessWidget {

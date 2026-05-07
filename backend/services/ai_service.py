@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
-
-from groq import Groq
+import time
+import json
+from groq import Groq, RateLimitError
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from core.config import Settings
 
 ALLOWED_TONES = {"executive", "analyst", "conversationalist", "layman"}
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "llama-3.1-8b-instant"
 
 
 class AIService:
@@ -129,9 +131,45 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=120, temperature=0.4)
 
+    def summarize_discovery_batch(self, articles: list[dict[str, str]], tone: str = "analyst") -> list[str]:
+        if not articles:
+            return []
+            
+        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        
+        items_block = ""
+        for i, art in enumerate(articles):
+            items_block += f"--- ITEM {i+1} ---\nTitle: {art['title']}\nText: {art['text'][:500]}\n\n"
+            
+        prompt = (
+            "You are a news curator. Summarize these discovery news items into a list of bite-sized bullet points.\n"
+            f"Tone: {normalized_tone}\n"
+            "Output Requirements:\n"
+            "You MUST return a JSON object with a single key 'bites' which is an array of strings.\n"
+            "- Each string must be exactly 1 short bullet line starting with '- '.\n"
+            "- Keep each bite under 30 words.\n"
+            "- Focus on the key why-it-matters angle.\n"
+            "- Provide exactly one bite per item provided.\n\n"
+            f"{items_block}"
+        )
+        
+        try:
+            res = self._generate(prompt, max_tokens=1000, temperature=0.4, json_mode=True)
+            data = json.loads(res)
+            return data.get("bites", [])
+        except Exception as e:
+            print(f"DEBUG: Batch discovery failed: {e}")
+            return []
+
     def deep_dive_summary(self, text: str, tone: str = "analyst") -> str:
         return self.summarize_deep_dive(text=text, tone=tone)
 
+    @retry(
+        retry=retry_if_exception_type(RateLimitError),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True
+    )
     def _generate(self, prompt: str, max_tokens: int, temperature: float, json_mode: bool = False) -> str:
         kwargs = {
             "model": MODEL,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -257,17 +258,21 @@ def _store_daily_digest(user_id: str, current_date: str, digest: DigestResponse)
 
 
 def _get_cached_topic_summary(topic: str, tone: str, current_date: str) -> ArticleSummary | None:
-    cache_key = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
-    digest = _get_cached_daily_digest(user_id=cache_key, current_date=current_date)
+    cache_key_str = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    # Convert string key to valid UUID to satisfy DB constraints
+    cache_key_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, cache_key_str))
+    digest = _get_cached_daily_digest(user_id=cache_key_uuid, current_date=current_date)
     if digest and digest.articles:
         return digest.articles[0]
     return None
 
 
 def _store_topic_summary(topic: str, tone: str, current_date: str, summary: ArticleSummary) -> None:
-    cache_key = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    cache_key_str = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    # Convert string key to valid UUID to satisfy DB constraints
+    cache_key_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, cache_key_str))
     digest = DigestResponse(articles=[summary], count=1)
-    _store_daily_digest(user_id=cache_key, current_date=current_date, digest=digest)
+    _store_daily_digest(user_id=cache_key_uuid, current_date=current_date, digest=digest)
 
 
 def _article_summary_json(article: ArticleSummary) -> dict:
@@ -775,7 +780,11 @@ def _cluster_by_topics(
     return selected_clusters
 
 
+_SCRAPE_CACHE: dict[str, str] = {}
+
 async def _scrape_single_url(url: str, min_chars: int) -> tuple[str, str] | None:
+    if url in _SCRAPE_CACHE:
+        return url, _SCRAPE_CACHE[url]
     try:
         page = await asyncio.to_thread(trafilatura.fetch_url, url)
         if not page:
@@ -796,6 +805,7 @@ async def _scrape_single_url(url: str, min_chars: int) -> tuple[str, str] | None
     cleaned = news_service.clean_text(extracted)[: settings.max_article_chars]
     if len(cleaned) < min_chars:
         return None
+    _SCRAPE_CACHE[url] = cleaned
     return url, cleaned
 
 
@@ -868,6 +878,9 @@ def _build_topic_summary(
             
         text = scraped_by_url.get(article.url, "").strip()
         content_type = "full_article"
+        if text:
+            # Truncate to save tokens (first ~250 words is enough for a summary)
+            text = text[:1200]
         if not text:
             text = news_service.clean_text(article.description.strip())
             content_type = "snippet"
@@ -1032,7 +1045,7 @@ def get_daily_digest(
             print(f"DEBUG: Failed to process topic {topic}: {exc}")
             return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(_process_topic, topics_to_process))
 
     for summary in results:
@@ -1100,7 +1113,9 @@ def get_discovery_news(
     if cached_discovery is not None:
         return cached_discovery
 
-    global_cache_key = f"GLOBAL_DISCOVERY|TONE:{tone.lower()}"
+    # Use a deterministic valid UUID for global discovery by tone to satisfy DB constraints
+    global_cache_key_str = f"GLOBAL_DISCOVERY|TONE:{tone.lower()}"
+    global_cache_key = str(uuid.uuid5(uuid.NAMESPACE_DNS, global_cache_key_str))
     cached_global = _get_cached_daily_discovery(user_id=global_cache_key, current_date=current_date)
     if cached_global is not None:
         print("DEBUG: Global discovery cache HIT")
@@ -1134,64 +1149,65 @@ def get_discovery_news(
         _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=[])
         return []
 
-    urls_to_scrape = [article.url for article in articles[: max(limit * 3, 12)]]
-    scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape), min_chars=120)
-    scraped_by_url = {item["url"]: item["text"] for item in scraped}
-
     summaries: list[ArticleSummary] = []
-    seen_urls: set[str] = set()
-    
-    discovery_tasks = []
-    for article in articles:
-        normalized_url = article.url.strip().lower()
-        if not normalized_url or normalized_url in seen_urls:
-            continue
-        seen_urls.add(normalized_url)
+    try:
+        urls_to_scrape = [article.url for article in articles[: max(limit * 3, 12)]]
+        scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape), min_chars=120)
+        scraped_by_url = {item["url"]: item["text"] for item in scraped}
 
-        source_text = scraped_by_url.get(article.url, "").strip()
-        if not source_text:
-            source_text = article.description.strip() or article.title.strip()
-        if not source_text:
-            continue
+        seen_urls: set[str] = set()
+        discovery_tasks = []
+        for article in articles:
+            normalized_url = article.url.strip().lower()
+            if not normalized_url or normalized_url in seen_urls:
+                continue
+            seen_urls.add(normalized_url)
+
+            source_text = scraped_by_url.get(article.url, "").strip()
+            if source_text:
+                # Discovery only needs a 1-sentence bite, 400 chars is plenty
+                source_text = source_text[:400]
+            if not source_text:
+                source_text = (article.description or "").strip() or article.title.strip()
+            if not source_text:
+                continue
+                
+            discovery_tasks.append((article, source_text))
+            if len(discovery_tasks) >= limit * 2:
+                break
+
+        # Batch process discovery bites to save RPM and tokens
+        discovery_payload = [{"title": t[0].title, "text": t[1]} for t in discovery_tasks]
+        bites = ai_service.summarize_discovery_batch(discovery_payload, tone=tone)
+        
+        for i, (article, _) in enumerate(discovery_tasks):
+            bite = bites[i] if i < len(bites) else f"- {article.title}"
             
-        discovery_tasks.append((article, source_text))
-        if len(discovery_tasks) >= limit * 2:
-            break
-
-    def _process_discovery(task_data) -> ArticleSummary | None:
-        article, text = task_data
-        try:
-            bite_sized_summary = ai_service.summarize_discovery_bite(
-                title=article.title,
-                text=text,
-                tone=tone,
+            # Robust image_url handling
+            img_url = (article.image_url or "").strip() or None
+            
+            summaries.append(
+                ArticleSummary(
+                    title=article.title,
+                    sources=[(article.source or "").strip() or "News"],
+                    urls=[article.url],
+                    summary=bite,
+                    image_url=img_url,
+                )
             )
-            return ArticleSummary(
-                title=article.title,
-                sources=[article.source.strip() or "Unknown"],
-                urls=[article.url],
-                summary=bite_sized_summary,
-                image_url=article.image_url.strip() or None,
-            )
-        except Exception as exc:
-            print(f"DEBUG: Summarization failed for {article.title}: {exc}")
-            return None
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
-        for result in executor.map(_process_discovery, discovery_tasks):
-            if result:
-                summaries.append(result)
             if len(summaries) >= limit:
                 break
 
-    try:
-        _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=summaries)
-        _store_daily_discovery(user_id=global_cache_key, current_date=current_date, discovery=summaries)
-    except HTTPException as cache_write_error:
-        cached_after_write_failure = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
-        if cached_after_write_failure is not None:
-            return cached_after_write_failure
-        raise cache_write_error
+        if summaries:
+            try:
+                _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=summaries)
+                _store_daily_discovery(user_id=global_cache_key, current_date=current_date, discovery=summaries)
+            except Exception as e:
+                print(f"DEBUG: Discovery cache write failed (non-fatal): {e}")
+    except Exception as e:
+        print(f"DEBUG: Discovery logic failed with fatal error: {e}")
+        import traceback
+        traceback.print_exc()
 
     return summaries
 
@@ -1270,41 +1286,28 @@ def get_sports_scoreboard(
     return response
 
 
-async def _prewarm_cache_task():
-    print("DEBUG: Starting background cache pre-warm...")
+async def _prewarm_scraping_task():
+    print("DEBUG: Starting background scraping pre-warm (0 tokens used)...")
     await asyncio.sleep(2)
-    current_date = _today_digest_date()
     default_topics = ["World News", "Science", "Technology", "Business", "Entertainment"]
     
-    for topic in default_topics:
-        if not _get_cached_topic_summary(topic, "analyst", current_date):
-            print(f"DEBUG: Pre-warming topic: {topic}")
-            def _do_warm(t=topic):
-                try:
-                    arts = news_service.fetch_news(topics=[t], country="us", limit=3)
-                    if arts:
-                        summ = _build_topic_summary(arts, t, "analyst")
-                        if summ:
-                            _store_topic_summary(t, "analyst", current_date, summ)
-                except Exception as e:
-                    print(f"DEBUG: Pre-warm failed for {t}: {e}")
-            await asyncio.to_thread(_do_warm)
+    def _do_fetch_and_scrape(t: str):
+        try:
+            arts = news_service.fetch_news(topics=[t], country="us", limit=3)
+            urls = [a.url for a in arts]
+            if urls:
+                _scrape_urls_parallel_bridge(urls, max_articles=len(urls))
+        except Exception as e:
+            print(f"DEBUG: Scraping pre-warm failed for {t}: {e}")
             
-    global_key = "GLOBAL_DISCOVERY|TONE:analyst"
-    if not _get_cached_daily_discovery(global_key, current_date):
-        print("DEBUG: Pre-warming global discovery...")
-        def _do_disco():
-            try:
-                get_discovery_news(excluded_topics=[], tone="analyst", country="us", limit=5, authorization=None, user_id="PREWARM_USER")
-            except Exception as e:
-                print(f"DEBUG: Pre-warm discovery failed: {e}")
-        await asyncio.to_thread(_do_disco)
+    for topic in default_topics:
+        await asyncio.to_thread(_do_fetch_and_scrape, topic)
         
-    print("DEBUG: Background cache pre-warm complete.")
+    print("DEBUG: Background scraping pre-warm complete.")
 
 @app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(_prewarm_cache_task())
+    asyncio.create_task(_prewarm_scraping_task())
 
 
 @app.delete("/delete-account", tags=["auth"])
