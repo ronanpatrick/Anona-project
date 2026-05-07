@@ -20,7 +20,7 @@ from core.config import get_settings
 from services.ai_service import AIService
 from services.news_service import NewsArticle, NewsService
 
-ToneType = Literal["executive", "analyst", "conversationalist", "layman"]
+ToneType = Literal["executive", "professional", "conversationalist", "layman"]
 
 settings = get_settings()
 news_service = NewsService(settings)
@@ -48,7 +48,7 @@ app.add_middleware(
 class DailyDigestRequest(BaseModel):
     selected_topics: list[str]
     user_id: str | None = None
-    summary_tone: ToneType = "analyst"
+    summary_tone: ToneType = "professional"
     country: str = "us"
     limit: int = Field(default=5, ge=1, le=10)
 
@@ -76,7 +76,7 @@ class ArticleSummary(BaseModel):
 class DigestResponse(BaseModel):
     articles: list[ArticleSummary]
     count: int
-    tone: str = "analyst"
+    tone: str = "professional"
 
 
 class DeepDiveResponse(BaseModel):
@@ -1090,7 +1090,7 @@ def get_daily_digest(
 async def get_deep_dive(
     url: str = Query(min_length=10),
     fallback_text: str | None = Query(default=None),
-    tone: str = Query(default="analyst"),
+    tone: str = Query(default="professional"),
     authorization: str | None = Header(default=None),
 ) -> DeepDiveResponse:
     _verify_user_if_present(authorization)

@@ -40,7 +40,7 @@ def test_daily_digest_tech():
     """Test daily digest with technology topic."""
     payload = {
         "topics": ["technology", "artificial intelligence"],
-        "tone": "analyst",
+        "tone": "professional",
         "country": "us",
         "limit": 2
     }
@@ -106,7 +106,7 @@ def test_deep_dive():
         f"{BASE_URL}/get-daily-digest",
         json={
             "topics": ["technology"],
-            "tone": "analyst",
+            "tone": "professional",
             "limit": 1
         }
     )
@@ -136,7 +136,7 @@ def test_invalid_topic():
     """Test with empty topics (should fail)."""
     payload = {
         "topics": [],
-        "tone": "analyst"
+        "tone": "professional"
     }
     response = requests.post(
         f"{BASE_URL}/get-daily-digest",

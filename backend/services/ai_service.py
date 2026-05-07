@@ -8,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from core.config import Settings
 
-ALLOWED_TONES = {"executive", "analyst", "conversationalist", "layman"}
+ALLOWED_TONES = {"executive", "professional", "conversationalist", "layman"}
 MODEL = "llama-3.1-8b-instant"
 
 
@@ -20,11 +20,11 @@ class AIService:
             raise RuntimeError("GROQ_API_KEY is missing in .env")
         self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-    def summarize_text(self, text: str, tone: str = "analyst", bullet_count: int = 5) -> str:
+    def summarize_text(self, text: str, tone: str = "professional", bullet_count: int = 5) -> str:
         if not text.strip():
             raise ValueError("Cannot summarize empty text")
 
-        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        normalized_tone = tone.lower() if tone.lower() in ALLOWED_TONES else "professional"
         prompt = (
             f"Summarize the article in exactly {bullet_count} concise bullet points.\n"
             f"Tone: {normalized_tone}.\n"
@@ -38,11 +38,11 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=450, temperature=0.5)
 
-    def synthesize_topic_story(self, reports: list[dict[str, str]], topic: str, tone: str = "analyst") -> str:
+    def synthesize_topic_story(self, reports: list[dict[str, str]], topic: str, tone: str = "professional") -> str:
         if not reports:
             raise ValueError("Cannot synthesize an empty report list")
 
-        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        normalized_tone = tone.lower() if tone.lower() in ALLOWED_TONES else "professional"
         combined_reports = []
         for idx, report in enumerate(reports, start=1):
             content_type = (report.get("content_type") or "full_article").strip()
@@ -78,7 +78,7 @@ class AIService:
                 "'summary': (string) 2-3 plain-English sentences as flowing prose. "
                 "Avoid jargon; explain things simply as if talking to a curious friend. No bullet points, no markdown symbols."
             )
-        else:  # analyst / professional / default
+        else:  # professional / default
             summary_format = (
                 "'summary': (string) 2-3 analytical sentences as flowing prose. "
                 "Include key data points and implications. No bullet points, no markdown symbols."
@@ -106,11 +106,11 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=1500, temperature=0.4, json_mode=True)
 
-    def summarize_deep_dive(self, text: str, tone: str = "analyst") -> str:
+    def summarize_deep_dive(self, text: str, tone: str = "professional") -> str:
         if not text.strip():
             raise ValueError("Cannot summarize empty text")
 
-        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        normalized_tone = tone.lower() if tone.lower() in ALLOWED_TONES else "professional"
         prompt = (
             "Create a high-detail deep-dive analysis of this news article.\n"
             f"Tone: {normalized_tone}\n"
@@ -141,14 +141,14 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=1200, temperature=0.6)
 
-    def summarize_discovery_bite(self, title: str, text: str, tone: str = "analyst") -> str:
+    def summarize_discovery_bite(self, title: str, text: str, tone: str = "professional") -> str:
         source_text = text.strip()
         if not source_text:
             source_text = title.strip()
         if not source_text:
             raise ValueError("Cannot summarize empty discovery content")
 
-        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        normalized_tone = tone.lower() if tone.lower() in ALLOWED_TONES else "professional"
         prompt = (
             "Write a bite-sized summary for this discovery news story.\n"
             f"Tone: {normalized_tone}\n"
@@ -163,11 +163,11 @@ class AIService:
         )
         return self._generate(prompt, max_tokens=120, temperature=0.4)
 
-    def summarize_discovery_batch(self, articles: list[dict[str, str]], tone: str = "analyst") -> list[str]:
+    def summarize_discovery_batch(self, articles: list[dict[str, str]], tone: str = "professional") -> list[str]:
         if not articles:
             return []
             
-        normalized_tone = tone if tone in ALLOWED_TONES else "analyst"
+        normalized_tone = tone.lower() if tone.lower() in ALLOWED_TONES else "professional"
         
         items_block = ""
         for i, art in enumerate(articles):
@@ -193,7 +193,7 @@ class AIService:
             print(f"DEBUG: Batch discovery failed: {e}")
             return []
 
-    def deep_dive_summary(self, text: str, tone: str = "analyst") -> str:
+    def deep_dive_summary(self, text: str, tone: str = "professional") -> str:
         return self.summarize_deep_dive(text=text, tone=tone)
 
     @retry(
