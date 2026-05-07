@@ -6,15 +6,24 @@ Here is a comprehensive root `README.md` you can add to the base of your reposit
 # Anona
 
 ## What is Anona?
-Anona is a personalized news summary application designed to cut through information overload. It delivers curated daily news digests, in-depth deep-dive article analyses, discovery content, live market snapshots, and unified sports scoreboards. By leveraging AI, Anona provides concise, tailored updates based on user preferences and tone requirements.
+Anona is a personalized news summary application designed to cut through information overload. 
+It delivers curated daily news digests, in-depth deep-dive article analyses, discovery content, 
+live market snapshots, and unified sports scoreboards. By leveraging AI, Anona provides concise, 
+tailored updates based on user preferences and tone requirements.
 
 ## How it Works
 The Anona project is split into two main components: a Python-based AI backend and a mobile frontend. 
 
-1. **The Backend (FastAPI + AI Pipeline):** The server handles all the heavy lifting for news curation. It utilizes the NewsData.io API to fetch trending articles based on user-specified topics. It then uses Trafilatura to cleanly scrape the full article text, bypassing ads and boilerplate. Finally, Google's Gemini 1.5 Flash AI processes the text to generate concise summaries or detailed deep-dive analyses in the user's preferred tone (Professional, Casual, Academic, or Friendly).
+1. **The Backend (FastAPI + AI Pipeline):** The server handles all the heavy lifting for news curation.
+It utilizes the NewsData.io API to fetch trending articles based on user-specified topics. It then uses
+Trafilatura to cleanly scrape the full article text, bypassing ads and boilerplate. Finally, 
+Google's Gemini 2.5 Flash AI processes the text to generate concise summaries or detailed deep-dive analyses
+in the user's preferred tone (Professional, Casual, Academic, or Friendly).
    
 2. **The Frontend (Mobile App):**
-   The mobile application connects directly to the backend's RESTful API. It provides the user interface for authenticating, setting topic and tone preferences, reading the daily 5-bullet digests, and viewing live market and sports dashboards.
+The mobile application connects directly to the backend's RESTful API. It provides the user interface
+for authenticating, setting topic and tone preferences, reading the daily 5-bullet digests, 
+and viewing live market and sports dashboards.
 
 ## Setup Instructions
 
