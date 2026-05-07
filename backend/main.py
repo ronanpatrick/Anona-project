@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import re
 from datetime import datetime, timezone
 from typing import Literal
@@ -18,7 +19,7 @@ from core.config import get_settings
 from services.ai_service import AIService
 from services.news_service import NewsArticle, NewsService
 
-ToneType = Literal["Professional", "Casual", "Academic", "Friendly", "Direct"]
+ToneType = Literal["executive", "analyst", "conversationalist", "layman"]
 
 settings = get_settings()
 news_service = NewsService(settings)
@@ -46,7 +47,7 @@ app.add_middleware(
 class DailyDigestRequest(BaseModel):
     selected_topics: list[str]
     user_id: str | None = None
-    summary_tone: ToneType = "Professional"
+    summary_tone: ToneType = "analyst"
     country: str = "us"
     limit: int = Field(default=5, ge=1, le=10)
 
@@ -253,6 +254,20 @@ def _store_daily_digest(user_id: str, current_date: str, digest: DigestResponse)
         client.table("daily_digests").insert(payload).execute()
     except Exception as exc:
         print(f"DEBUG: Daily digest cache write failed: {exc}")
+
+
+def _get_cached_topic_summary(topic: str, tone: str, current_date: str) -> ArticleSummary | None:
+    cache_key = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    digest = _get_cached_daily_digest(user_id=cache_key, current_date=current_date)
+    if digest and digest.articles:
+        return digest.articles[0]
+    return None
+
+
+def _store_topic_summary(topic: str, tone: str, current_date: str, summary: ArticleSummary) -> None:
+    cache_key = f"TOPIC:{topic.lower()}|TONE:{tone.lower()}"
+    digest = DigestResponse(articles=[summary], count=1)
+    _store_daily_digest(user_id=cache_key, current_date=current_date, digest=digest)
 
 
 def _article_summary_json(article: ArticleSummary) -> dict:
@@ -967,13 +982,32 @@ def get_daily_digest(
         )
         return cached_digest
 
-    if not request.selected_topics:
-        request.selected_topics = ["World News", "Science"]
+    default_fillers = ["World News", "Science", "Technology", "Business", "Entertainment"]
+    unique_topics = []
+    seen = set()
+    for t in (request.selected_topics or []):
+        t_lower = t.strip().lower()
+        if t_lower and t_lower not in seen:
+            seen.add(t_lower)
+            unique_topics.append(t.strip())
+            
+    for t in default_fillers:
+        if len(unique_topics) >= 5:
+            break
+        t_lower = t.lower()
+        if t_lower not in seen:
+            seen.add(t_lower)
+            unique_topics.append(t)
 
-    topics_to_process = request.selected_topics[:5]
+    topics_to_process = unique_topics[:5]
     final_digest_list: list[ArticleSummary] = []
 
-    for topic in topics_to_process:
+    def _process_topic(topic: str) -> ArticleSummary | None:
+        cached = _get_cached_topic_summary(topic, request.summary_tone, current_date)
+        if cached:
+            print(f"DEBUG: Topic cache HIT for {topic}")
+            return cached
+
         try:
             articles = news_service.fetch_news(
                 topics=[topic],
@@ -982,20 +1016,28 @@ def get_daily_digest(
             )
             if not articles:
                 print(f"DEBUG: No news found for {topic}")
-                continue
+                return None
 
             summary = _build_topic_summary(
                 articles=articles,
                 topic=topic,
                 tone=request.summary_tone,
             )
-            if summary:
-                final_digest_list.append(summary)
-            else:
+            if not summary:
                 print(f"DEBUG: No news found for {topic}")
+            else:
+                _store_topic_summary(topic, request.summary_tone, current_date, summary)
+            return summary
         except Exception as exc:
             print(f"DEBUG: Failed to process topic {topic}: {exc}")
-            continue
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(_process_topic, topics_to_process))
+
+    for summary in results:
+        if summary:
+            final_digest_list.append(summary)
 
     if final_digest_list:
         print(f"DEBUG: Successfully generated {len(final_digest_list)} topic cards.")
@@ -1027,7 +1069,7 @@ def get_daily_digest(
 @app.get("/get-deep-dive", response_model=DeepDiveResponse, tags=["analysis"])
 def get_deep_dive(
     url: str = Query(min_length=10),
-    tone: ToneType = Query(default="Professional"),
+    tone: ToneType = Query(default="analyst"),
     authorization: str | None = Header(default=None),
 ) -> DeepDiveResponse:
     _verify_user_if_present(authorization)
@@ -1046,7 +1088,7 @@ def get_deep_dive(
 @app.get("/get-discovery-news", response_model=list[ArticleSummary], tags=["discovery"])
 def get_discovery_news(
     excluded_topics: list[str] | None = Query(default=None),
-    tone: ToneType = Query(default="Professional"),
+    tone: ToneType = Query(default="analyst"),
     country: str = Query(default="us"),
     limit: int = Query(default=5, ge=3, le=5),
     authorization: str | None = Header(default=None),
@@ -1057,6 +1099,16 @@ def get_discovery_news(
     cached_discovery = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
     if cached_discovery is not None:
         return cached_discovery
+
+    global_cache_key = f"GLOBAL_DISCOVERY|TONE:{tone.lower()}"
+    cached_global = _get_cached_daily_discovery(user_id=global_cache_key, current_date=current_date)
+    if cached_global is not None:
+        print("DEBUG: Global discovery cache HIT")
+        try:
+            _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=cached_global)
+        except Exception:
+            pass
+        return cached_global[:limit]
 
     user_excluded_topics = _load_user_excluded_topics(user_id)
     combined_excluded_topics = _normalize_topic_terms([*(excluded_topics or []), *user_excluded_topics])
@@ -1082,12 +1134,14 @@ def get_discovery_news(
         _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=[])
         return []
 
-    urls_to_scrape = [article.url for article in articles[: max(limit * 2, limit)]]
+    urls_to_scrape = [article.url for article in articles[: max(limit * 3, 12)]]
     scraped = _scrape_urls_parallel_bridge(urls=urls_to_scrape, max_articles=len(urls_to_scrape), min_chars=120)
     scraped_by_url = {item["url"]: item["text"] for item in scraped}
 
     summaries: list[ArticleSummary] = []
     seen_urls: set[str] = set()
+    
+    discovery_tasks = []
     for article in articles:
         normalized_url = article.url.strip().lower()
         if not normalized_url or normalized_url in seen_urls:
@@ -1099,30 +1153,40 @@ def get_discovery_news(
             source_text = article.description.strip() or article.title.strip()
         if not source_text:
             continue
+            
+        discovery_tasks.append((article, source_text))
+        if len(discovery_tasks) >= limit * 2:
+            break
 
+    def _process_discovery(task_data) -> ArticleSummary | None:
+        article, text = task_data
         try:
             bite_sized_summary = ai_service.summarize_discovery_bite(
                 title=article.title,
-                text=source_text,
+                text=text,
                 tone=tone,
             )
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"Summarization failed: {exc}") from exc
-
-        summaries.append(
-            ArticleSummary(
+            return ArticleSummary(
                 title=article.title,
                 sources=[article.source.strip() or "Unknown"],
                 urls=[article.url],
                 summary=bite_sized_summary,
                 image_url=article.image_url.strip() or None,
             )
-        )
-        if len(summaries) >= limit:
-            break
+        except Exception as exc:
+            print(f"DEBUG: Summarization failed for {article.title}: {exc}")
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=limit) as executor:
+        for result in executor.map(_process_discovery, discovery_tasks):
+            if result:
+                summaries.append(result)
+            if len(summaries) >= limit:
+                break
 
     try:
         _store_daily_discovery(user_id=user_id, current_date=current_date, discovery=summaries)
+        _store_daily_discovery(user_id=global_cache_key, current_date=current_date, discovery=summaries)
     except HTTPException as cache_write_error:
         cached_after_write_failure = _get_cached_daily_discovery(user_id=user_id, current_date=current_date)
         if cached_after_write_failure is not None:
@@ -1205,6 +1269,59 @@ def get_sports_scoreboard(
 
     return response
 
+
+async def _prewarm_cache_task():
+    print("DEBUG: Starting background cache pre-warm...")
+    await asyncio.sleep(2)
+    current_date = _today_digest_date()
+    default_topics = ["World News", "Science", "Technology", "Business", "Entertainment"]
+    
+    for topic in default_topics:
+        if not _get_cached_topic_summary(topic, "analyst", current_date):
+            print(f"DEBUG: Pre-warming topic: {topic}")
+            def _do_warm(t=topic):
+                try:
+                    arts = news_service.fetch_news(topics=[t], country="us", limit=3)
+                    if arts:
+                        summ = _build_topic_summary(arts, t, "analyst")
+                        if summ:
+                            _store_topic_summary(t, "analyst", current_date, summ)
+                except Exception as e:
+                    print(f"DEBUG: Pre-warm failed for {t}: {e}")
+            await asyncio.to_thread(_do_warm)
+            
+    global_key = "GLOBAL_DISCOVERY|TONE:analyst"
+    if not _get_cached_daily_discovery(global_key, current_date):
+        print("DEBUG: Pre-warming global discovery...")
+        def _do_disco():
+            try:
+                get_discovery_news(excluded_topics=[], tone="analyst", country="us", limit=5, authorization=None, user_id="PREWARM_USER")
+            except Exception as e:
+                print(f"DEBUG: Pre-warm discovery failed: {e}")
+        await asyncio.to_thread(_do_disco)
+        
+    print("DEBUG: Background cache pre-warm complete.")
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(_prewarm_cache_task())
+
+
+@app.delete("/delete-account", tags=["auth"])
+def delete_account(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    user_id = _verify_user_if_present(authorization)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+    
+    client = _require_supabase()
+    try:
+        # Delete user from auth.users using admin API.
+        # Ensure we use admin API because regular client cannot delete user without admin rights.
+        client.auth.admin.delete_user(user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete account: {exc}") from exc
+        
+    return {"status": "success", "message": "Account deleted successfully"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

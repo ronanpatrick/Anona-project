@@ -129,43 +129,76 @@ enum AiPersonality {
   }
 }
 
-// ── Legacy SummaryTone (kept for auth_service compatibility) ───────────────────
+// ── SummaryTone ────────────────────────────────────────────────────────────────
 enum SummaryTone {
-  professional,
-  casual,
-  bulletPointsOnly;
+  executive,
+  analyst,
+  conversationalist,
+  layman;
 
   String get dbValue {
     switch (this) {
-      case SummaryTone.professional:
-        return 'professional';
-      case SummaryTone.casual:
-        return 'casual';
-      case SummaryTone.bulletPointsOnly:
-        return 'bullet_points_only';
+      case SummaryTone.executive:
+        return 'executive';
+      case SummaryTone.analyst:
+        return 'analyst';
+      case SummaryTone.conversationalist:
+        return 'conversationalist';
+      case SummaryTone.layman:
+        return 'layman';
     }
   }
 
   String get label {
     switch (this) {
-      case SummaryTone.professional:
-        return 'Professional';
-      case SummaryTone.casual:
-        return 'Casual';
-      case SummaryTone.bulletPointsOnly:
-        return 'Bullet Points Only';
+      case SummaryTone.executive:
+        return 'Executive';
+      case SummaryTone.analyst:
+        return 'Analyst';
+      case SummaryTone.conversationalist:
+        return 'Conversationalist';
+      case SummaryTone.layman:
+        return 'Layman';
+    }
+  }
+
+  String get subtitle {
+    switch (this) {
+      case SummaryTone.executive:
+        return 'Concise, bullet-driven briefs';
+      case SummaryTone.analyst:
+        return 'Deep context & nuance';
+      case SummaryTone.conversationalist:
+        return 'Podcast-style narrative';
+      case SummaryTone.layman:
+        return 'Plain, simple language';
+    }
+  }
+
+  String get emoji {
+    switch (this) {
+      case SummaryTone.executive:
+        return '⚡';
+      case SummaryTone.analyst:
+        return '🔬';
+      case SummaryTone.conversationalist:
+        return '🎙️';
+      case SummaryTone.layman:
+        return '💬';
     }
   }
 
   static SummaryTone fromDbValue(String? value) {
     switch (value) {
-      case 'casual':
-        return SummaryTone.casual;
-      case 'bullet_points_only':
-        return SummaryTone.bulletPointsOnly;
-      case 'professional':
+      case 'executive':
+        return SummaryTone.executive;
+      case 'conversationalist':
+        return SummaryTone.conversationalist;
+      case 'layman':
+        return SummaryTone.layman;
+      case 'analyst':
       default:
-        return SummaryTone.professional;
+        return SummaryTone.analyst;
     }
   }
 }
@@ -185,7 +218,7 @@ class OnboardingState {
     // Legacy fields kept for auth_service compatibility
     this.lifeTracking = const <String>[],
     this.sourceControl = SourceControlPreference.allow,
-    this.summaryTone = SummaryTone.professional,
+    this.summaryTone = SummaryTone.analyst,
   });
 
   final String firstName;

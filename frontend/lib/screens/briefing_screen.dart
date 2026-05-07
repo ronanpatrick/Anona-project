@@ -114,15 +114,19 @@ class _BriefingScreenState extends State<BriefingScreen> {
     });
 
     try {
-      final topics = await _loadDiscoveryExclusions();
-      debugPrint('PROV: Pulling topics from state: $topics');
+      final preferences = await _loadUserPreferences();
+      final topics = preferences.topics;
+      final tone = preferences.tone;
+      
+      debugPrint('PROV: Pulling topics from state: $topics, tone: $tone');
       
       final digestFuture = _apiService.fetchDailyDigest(
         topics: topics,
-        tone: 'Casual',
+        tone: tone,
       );
       final discoveryFuture = _apiService.fetchDiscoveryNews(
         excludedTopics: topics,
+        tone: tone,
       );
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
         digestFuture,
@@ -152,37 +156,45 @@ class _BriefingScreenState extends State<BriefingScreen> {
     }
   }
 
-  Future<List<String>> _loadDiscoveryExclusions() async {
-    final defaults = <String>['World News'];
+  Future<({List<String> topics, String tone})> _loadUserPreferences() async {
+    const defaultTopics = <String>['World News'];
+    const defaultTone = 'analyst';
+    
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
-      return defaults;
+      return (topics: defaultTopics, tone: defaultTone);
     }
 
     try {
       final row = await Supabase.instance.client
           .from('user_preferences')
-          .select('selected_topics')
+          .select('selected_topics, summary_tone')
           .eq('id', user.id)
           .maybeSingle();
       if (row == null) {
-        return defaults;
+        return (topics: defaultTopics, tone: defaultTone);
       }
+      
       final topicValues = row['selected_topics'];
-      if (topicValues is! List) {
-        return defaults;
-      }
-      final topics = topicValues
-          .whereType<String>()
-          .map((item) => item.trim())
-          .where((item) => item.isNotEmpty)
-          .toList(growable: false);
-      if (topics.isEmpty) {
-        return defaults;
-      }
-      return topics;
+      final rawTone = row['summary_tone'] as String?;
+      
+      final topics = (topicValues is List)
+          ? topicValues
+              .whereType<String>()
+              .map((item) => item.trim())
+              .where((item) => item.isNotEmpty)
+              .toList(growable: false)
+          : defaultTopics;
+          
+      // Validate tone against allowed values
+      const allowedTones = ['executive', 'analyst', 'conversationalist', 'layman'];
+      final tone = (rawTone != null && allowedTones.contains(rawTone.toLowerCase()))
+          ? rawTone.toLowerCase()
+          : defaultTone;
+
+      return (topics: topics.isEmpty ? defaultTopics : topics, tone: tone);
     } catch (_) {
-      return defaults;
+      return (topics: defaultTopics, tone: defaultTone);
     }
   }
 
@@ -557,20 +569,25 @@ class _BriefingScreenState extends State<BriefingScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              AudioBriefingPlayer(
-                isLoading: _isLoading,
-                isSpeaking: _isSpeaking,
-                isPaused: _isPaused,
-                onTogglePlayback: _togglePlayback,
-              ),
-              _buildNarrativeSection(context),
-              _buildDiscoverySection(context),
-            ],
+        child: RefreshIndicator(
+          onRefresh: _loadBriefingData,
+          color: Theme.of(context).colorScheme.primary,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                AudioBriefingPlayer(
+                  isLoading: _isLoading,
+                  isSpeaking: _isSpeaking,
+                  isPaused: _isPaused,
+                  onTogglePlayback: _togglePlayback,
+                ),
+                _buildNarrativeSection(context),
+                _buildDiscoverySection(context),
+              ],
+            ),
           ),
         ),
       ),

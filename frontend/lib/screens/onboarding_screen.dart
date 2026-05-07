@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../state/onboarding_state.dart';
 import '../theme/app_theme.dart';
 
@@ -62,6 +63,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           userId: user.id,
           preferences: onboardingState,
         );
+
+        final parts = onboardingState.briefingTime.split(':');
+        int hour = 8;
+        int minute = 0;
+        if (parts.length == 2) {
+          hour = int.tryParse(parts[0]) ?? 8;
+          minute = int.tryParse(parts[1]) ?? 0;
+        }
+        await NotificationService().scheduleDailyBriefing(
+          TimeOfDay(hour: hour, minute: minute),
+        );
+
         if (mounted) {
           if (widget.onCompleted != null) {
             widget.onCompleted!();

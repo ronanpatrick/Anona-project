@@ -132,7 +132,7 @@ class ApiService {
 
   Future<List<Article>> fetchDiscoveryNews({
     required List<String> excludedTopics,
-    String tone = 'Professional',
+    String tone = 'analyst',
     int limit = 5,
   }) async {
     final queryParams = <String, List<String>>{
@@ -234,5 +234,17 @@ class ApiService {
     }
 
     return SportsScoreboard.fromJson(decoded);
+  }
+
+  Future<void> deleteAccount() async {
+    final uri = Uri.parse('$_baseUrl/delete-account');
+    final response = await http.delete(uri, headers: _authHeaders());
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Failed to delete account '
+        '(${response.statusCode}): ${response.body}',
+      );
+    }
   }
 }

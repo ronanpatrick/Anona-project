@@ -37,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Track current page for dot indicator
   int _currentPage = 0;
   String? _firstName;
+  String _summaryTone = 'analyst';
 
   @override
   void initState() {
@@ -82,13 +83,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     try {
       final row = await Supabase.instance.client
           .from('user_preferences')
-          .select('first_name, selected_topics')
+          .select('first_name, selected_topics, summary_tone')
           .eq('id', user.id)
           .maybeSingle();
       if (mounted && row != null) {
         final List<dynamic> topicsJson = row['selected_topics'] as List<dynamic>? ?? [];
         setState(() {
           _firstName = row['first_name'] as String?;
+          _summaryTone = row['summary_tone'] as String? ?? 'analyst';
           _selectedTopics = topicsJson.map((e) => e.toString()).toList();
         });
       }
@@ -117,7 +119,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       
       final articles = await _apiService.fetchDailyDigest(
         topics: topics,
-        tone: 'Casual',
+        tone: _summaryTone,
       );
       if (!mounted) return;
       setState(() => _articles = articles);
@@ -651,6 +653,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return RefreshIndicator(
       onRefresh: () async {
         await Future.wait([
+          _fetchUserPreferences(),
           _fetchDailyDigest(),
           _fetchMarketSnapshot(),
           _fetchSportsScoreboard(),

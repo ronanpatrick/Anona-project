@@ -9,6 +9,7 @@ import 'screens/auth_screen.dart';
 import 'screens/main_scaffold.dart';
 import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,8 @@ Future<void> main() async {
     url: dotenv.env['SUPABASE_URL'] ?? '',
     anonKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
   );
+
+  await NotificationService().init();
 
   runApp(
     ProviderScope(

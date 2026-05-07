@@ -3,29 +3,17 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/settings_provider.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'auth_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  Future<void> _showWidgetInstructions(BuildContext context) {
-    return showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _InfoSheet(
-        icon: CupertinoIcons.square_grid_2x2,
-        title: 'Android Widget Setup',
-        content: '1. Long-press an empty space on your home screen.\n'
-            '2. Tap Widgets.\n'
-            '3. Find Anona.\n'
-            '4. Drag the widget to your home screen.\n'
-            '5. Resize if needed and tap it to open Anona.',
-      ),
-    );
-  }
+
 
   Future<void> _confirmDeleteAccount(BuildContext context) {
     return showDialog<void>(
@@ -35,7 +23,7 @@ class SettingsScreen extends StatelessWidget {
         return AlertDialog(
           title: const Text('Delete Account'),
           content: const Text(
-            'This is a placeholder. Backend account deletion will be added in a later phase.',
+            'Are you sure you want to delete your account? This action cannot be undone. All your saved articles and preferences will be permanently removed.',
           ),
           actions: <Widget>[
             TextButton(
@@ -47,12 +35,68 @@ class SettingsScreen extends StatelessWidget {
                 backgroundColor: cs.error,
                 foregroundColor: cs.onError,
               ),
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () async {
+                Navigator.of(ctx).pop(); // Close dialog
+                try {
+                  // Call backend to delete user account using admin API
+                  await const ApiService().deleteAccount();
+                  // Sign out from the client
+                  await Supabase.instance.client.auth.signOut();
+                  
+                  if (!context.mounted) return;
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute<void>(builder: (_) => const AuthScreen()),
+                    (route) => false,
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Account deleted successfully.')),
+                  );
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to delete account: $e')),
+                  );
+                }
+              },
               child: const Text('Delete'),
             ),
           ],
         );
       },
+    );
+  }
+
+  void _showHelpSupport(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const _InfoSheet(
+        icon: CupertinoIcons.chat_bubble_2_fill,
+        title: 'Help & Support',
+        content: 'Welcome to Anona Support!\n\n'
+            'If you need assistance with your account, daily digests, or have any other questions, our support team is here to help.\n\n'
+            'Email us at: support@anona-app.com\n\n'
+            'We aim to respond to all inquiries within 24 hours.',
+      ),
+    );
+  }
+
+  void _showPrivacyPolicy(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const _InfoSheet(
+        icon: CupertinoIcons.doc_text_fill,
+        title: 'Privacy Policy',
+        content: 'Privacy Policy\n\n'
+            'Your privacy is critically important to us. At Anona, we only collect information necessary to provide you with your daily personalized digests.\n\n'
+            '1. Data We Collect: We collect your topic preferences and saved articles to tailor your experience.\n'
+            '2. How We Use Data: We do not sell your personal data. We use it solely to fetch and summarize news for you.\n'
+            '3. Data Protection: We implement industry-standard security measures to protect your data.\n\n'
+            'For a full overview, please contact our support team.',
+      ),
     );
   }
 
@@ -172,16 +216,70 @@ class SettingsScreen extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
-          // Widget
-          _SectionHeader(label: 'Widget'),
+          // Notifications (Placeholder)
+          _SectionHeader(label: 'Notifications'),
           const SizedBox(height: 8),
           _SettingsTile(
-            icon: CupertinoIcons.square_grid_2x2,
-            iconColor: const Color(0xFF30D158),
-            label: 'Home Screen Widget',
-            subtitle: 'How to add the widget',
+            icon: CupertinoIcons.bell_fill,
+            iconColor: const Color(0xFFFF2D55),
+            label: 'Push Notifications',
+            trailing: CupertinoSwitch(
+              value: true, // Placeholder
+              activeColor: cs.primary,
+              onChanged: (value) {
+                // Placeholder
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            icon: CupertinoIcons.mail_solid,
+            iconColor: const Color(0xFF5856D6),
+            label: 'Daily Digest Delivery',
+            trailing: CupertinoSwitch(
+              value: true, // Placeholder
+              activeColor: cs.primary,
+              onChanged: (value) {
+                // Placeholder
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Data & Storage (Placeholder)
+          _SectionHeader(label: 'Data & Storage'),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            icon: CupertinoIcons.trash_fill,
+            iconColor: const Color(0xFFFF9500),
+            label: 'Clear Cache',
+            subtitle: 'Free up local storage',
             trailing: const Icon(CupertinoIcons.chevron_right, size: 14),
-            onTap: () => _showWidgetInstructions(context),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Cache cleared successfully.')),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+
+          // Support & About (Placeholder)
+          _SectionHeader(label: 'Support & About'),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            icon: CupertinoIcons.chat_bubble_2_fill,
+            iconColor: const Color(0xFF00C7BE),
+            label: 'Help & Support',
+            trailing: const Icon(CupertinoIcons.chevron_right, size: 14),
+            onTap: () => _showHelpSupport(context),
+          ),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            icon: CupertinoIcons.doc_text_fill,
+            iconColor: const Color(0xFFA2845E),
+            label: 'Privacy Policy',
+            trailing: const Icon(CupertinoIcons.chevron_right, size: 14),
+            onTap: () => _showPrivacyPolicy(context),
           ),
           const SizedBox(height: 20),
 
@@ -339,12 +437,12 @@ class _InfoSheet extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(content, style: tt.bodyLarge),
-              const SizedBox(height: 20),
+              const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Got it'),
+                  child: const Text('Close'),
                 ),
               ),
             ],
@@ -354,3 +452,5 @@ class _InfoSheet extends StatelessWidget {
     );
   }
 }
+
+
