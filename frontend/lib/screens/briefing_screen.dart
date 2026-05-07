@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:provider/provider.dart';
@@ -435,7 +437,7 @@ class _BriefingScreenState extends State<BriefingScreen> {
       builder: (BuildContext context) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,21 +447,29 @@ class _BriefingScreenState extends State<BriefingScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
-                Text(source),
-                const SizedBox(height: 12),
-                Text(article.summary),
-                const SizedBox(height: 8),
+                Text(source, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 16),
+                Text(
+                  article.summary,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 24),
                 Row(
                   children: <Widget>[
-                    IconButton(
-                      onPressed: isSaved ? null : () => _saveArticle(article),
+                    OutlinedButton.icon(
+                      onPressed: isSaved ? null : () {
+                        _saveArticle(article);
+                        Navigator.pop(context);
+                      },
                       icon: Icon(isSaved ? Icons.bookmark : Icons.bookmark_border),
-                      tooltip: isSaved ? 'Saved' : 'Save',
+                      label: Text(isSaved ? 'Saved' : 'Save'),
                     ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: sourceUrl.isEmpty ? null : () => _openExternalUrl(sourceUrl),
-                      child: const Text('Read Original'),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: sourceUrl.isEmpty ? null : () => _openExternalUrl(sourceUrl),
+                        child: const Text('Read Original'),
+                      ),
                     ),
                   ],
                 ),
@@ -471,94 +481,159 @@ class _BriefingScreenState extends State<BriefingScreen> {
     );
   }
 
-  Widget _buildPodcastHeader(BuildContext context) {
-    final bool showPauseState = _isSpeaking && !_isPaused;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.podcasts, size: 34),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+  Widget _buildNarrativeSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (_digestArticles.isEmpty)
+          const Text('No digest headlines yet.')
+        else
+          ..._digestArticles.map((Article article) => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  'Daily Briefing Audio',
-                  style: Theme.of(context).textTheme.titleMedium,
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 12),
+                  child: Icon(Icons.circle, size: 8, color: Theme.of(context).colorScheme.primary),
                 ),
-                const SizedBox(height: 4),
-                const Text('Listen to your digest summaries'),
+                Expanded(
+                  child: Text(
+                    article.title,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.5),
+                  ),
+                ),
               ],
             ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.icon(
-            onPressed: _isLoading ? null : _togglePlayback,
-            icon: Icon(showPauseState ? Icons.pause : Icons.play_arrow),
-            label: Text(showPauseState ? 'Pause' : 'Play'),
-          ),
-        ],
-      ),
+          )),
+      ],
+    );
+  }
+
+  Widget _buildDiscoverySection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: 40),
+        Text(
+          'Discovery',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 24),
+        if (_discoveryArticles.isEmpty)
+          const Text('No discovery stories available right now.')
+        else
+          ..._discoveryArticles.map((Article article) => Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: GestureDetector(
+              onTap: () => _showDiscoverySheet(article),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      article.title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.arrow_outward, size: 16, color: Theme.of(context).colorScheme.primary),
+                ],
+              ),
+            ),
+          )),
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _digestArticles.isEmpty && _discoveryArticles.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadBriefingData,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          _buildPodcastHeader(context),
-          const SizedBox(height: 20),
-          Text(
-            'Today\'s Headlines',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          if (_digestArticles.isEmpty)
-            const Text('No digest headlines yet.')
-          else
-            ..._digestArticles.map(
-              (article) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text('• ${article.title}'),
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              AudioBriefingPlayer(
+                isLoading: _isLoading,
+                isSpeaking: _isSpeaking,
+                isPaused: _isPaused,
+                onTogglePlayback: _togglePlayback,
               ),
-            ),
-          const SizedBox(height: 20),
-          Text(
-            'Discovery',
-            style: Theme.of(context).textTheme.titleLarge,
+              _buildNarrativeSection(context),
+              _buildDiscoverySection(context),
+            ],
           ),
-          const SizedBox(height: 8),
-          if (_discoveryArticles.isEmpty)
-            const Text('No discovery stories available right now.')
-          else
-            ..._discoveryArticles.map(
-              (article) => Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: () => _showDiscoverySheet(article),
-                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 6)),
-                  child: Text(
-                    article.title,
-                    textAlign: TextAlign.left,
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class AudioBriefingPlayer extends StatelessWidget {
+  final bool isLoading;
+  final bool isSpeaking;
+  final bool isPaused;
+  final VoidCallback onTogglePlayback;
+
+  const AudioBriefingPlayer({
+    super.key,
+    required this.isLoading,
+    required this.isSpeaking,
+    required this.isPaused,
+    required this.onTogglePlayback,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool showPauseState = isSpeaking && !isPaused;
+    return Column(
+      children: <Widget>[
+        const SizedBox(height: 32),
+        Center(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              iconSize: 64,
+              color: Theme.of(context).colorScheme.onPrimary,
+              icon: Icon(showPauseState ? Icons.pause : Icons.play_arrow),
+              onPressed: isLoading ? null : onTogglePlayback,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+          ),
+          child: Slider(
+            value: isSpeaking ? 0.3 : 0.0,
+            onChanged: (double value) {},
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: <Widget>[
+            Text('0:00', style: Theme.of(context).textTheme.bodySmall),
+            Text('5:00', style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+        const SizedBox(height: 24),
+        const Divider(height: 32),
+      ],
     );
   }
 }

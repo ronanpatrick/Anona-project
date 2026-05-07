@@ -284,6 +284,41 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ── UI Builders ────────────────────────────────────────────────────────────
 
+  void _showFullStocks(BuildContext context) {
+    if (_marketSnapshot.isEmpty) return;
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: StockWatchlistCard(
+          items: _marketSnapshot,
+          isExpanded: true,
+        ),
+      ),
+    );
+  }
+
+  void _showFullSports(BuildContext context) {
+    if (_sportsScoreboard == null) return;
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: SportsScoreboardCard(
+          scoreboard: _sportsScoreboard,
+          isLoading: _isSportsLoading,
+          isExpanded: true,
+        ),
+      ),
+    );
+  }
+
   /// Full-screen immersive news card with image background + gradient overlay.
   Widget _buildArticleCard(Article article, int pageIndex) {
     debugPrint('Building card: ${article.title} | Image: ${article.imageUrl}');
@@ -462,7 +497,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       curve: Curves.easeOutCubic,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: StockWatchlistCard(items: _marketSnapshot),
+        child: StockWatchlistCard(
+          items: _marketSnapshot,
+          onTap: () => _showFullStocks(context),
+        ),
       ),
     );
   }
@@ -481,6 +519,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         child: SportsScoreboardCard(
           scoreboard: _sportsScoreboard,
           isLoading: _isSportsLoading,
+          onTap: () => _showFullSports(context),
         ),
       ),
     );

@@ -8,11 +8,15 @@ class SportsScoreboardCard extends StatelessWidget {
   const SportsScoreboardCard({
     required this.scoreboard,
     required this.isLoading,
+    this.onTap,
+    this.isExpanded = false,
     super.key,
   });
 
   final SportsScoreboard? scoreboard;
   final bool isLoading;
+  final VoidCallback? onTap;
+  final bool isExpanded;
 
   // Brand tokens
   static const Color _cardBg    = AnonaColors.primeNavy;
@@ -24,26 +28,9 @@ class SportsScoreboardCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final current = scoreboard;
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF07101A), _cardBg],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: _cardBg.withOpacity(0.5),
-            blurRadius: 28,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
+    Widget content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
           // Header
           Row(
             children: <Widget>[
@@ -78,14 +65,6 @@ class SportsScoreboardCard extends StatelessWidget {
                   ],
                 ),
               ),
-              _GlassBtn(
-                icon: Icons.tune_rounded,
-                color: _accent,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                      builder: (_) => const ProfileScreen()),
-                ),
-              ),
             ],
           ),
 
@@ -110,10 +89,47 @@ class SportsScoreboardCard extends StatelessWidget {
               ),
             )
           else
-            _buildSections(current),
+            if (isExpanded)
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: _buildSections(current),
+                ),
+              )
+            else
+              _buildSections(current),
+        ],
+      );
+
+    Widget card = Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF07101A), _cardBg],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: isExpanded
+            ? const BorderRadius.vertical(top: Radius.circular(28))
+            : BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: _cardBg.withOpacity(0.5),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
+      padding: const EdgeInsets.all(20),
+      child: content,
     );
+
+    if (onTap != null && !isExpanded) {
+      return GestureDetector(
+        onTap: onTap,
+        child: card,
+      );
+    }
+    return card;
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────────
@@ -127,25 +143,66 @@ class SportsScoreboardCard extends StatelessWidget {
 
   Widget _buildSections(SportsScoreboard value) {
     final sections = <Widget>[];
+    int displayedGames = 0;
 
     if (value.yourTeams.isNotEmpty) {
-      sections
-        ..add(_sectionLabel('YOUR GAMES'))
-        ..add(_buildGamesList(value.yourTeams));
+      final gamesToShow = isExpanded ? value.yourTeams : value.yourTeams.take(3).toList();
+      if (gamesToShow.isNotEmpty) {
+        sections
+          ..add(_sectionLabel('YOUR GAMES'))
+          ..add(_buildGamesList(gamesToShow));
+        displayedGames += gamesToShow.length;
+      }
     }
 
     for (final entry in value.bySport.entries) {
+      if (!isExpanded && displayedGames >= 3) break;
       if (entry.value.isEmpty) continue;
-      if (sections.isNotEmpty) sections.add(const SizedBox(height: 12));
-      sections
-        ..add(_sectionLabel(entry.key.toUpperCase()))
-        ..add(_buildGamesList(entry.value));
+      final gamesToShow = isExpanded ? entry.value : entry.value.take(3 - displayedGames).toList();
+      if (gamesToShow.isNotEmpty) {
+        if (sections.isNotEmpty) sections.add(const SizedBox(height: 12));
+        sections
+          ..add(_sectionLabel(entry.key.toUpperCase()))
+          ..add(_buildGamesList(gamesToShow));
+        displayedGames += gamesToShow.length;
+      }
     }
 
     if (sections.isEmpty) {
       return Text('No games available.',
           style: TextStyle(color: Colors.white.withOpacity(0.5)));
     }
+
+    int totalGames = value.yourTeams.length;
+    for (final list in value.bySport.values) {
+      totalGames += list.length;
+    }
+
+    if (!isExpanded && totalGames > 3) {
+      sections.add(const SizedBox(height: 16));
+      sections.add(Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Tap to view all',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.5),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: Colors.white.withOpacity(0.5),
+              size: 16,
+            ),
+          ],
+        ),
+      ));
+    }
+
     return Column(
         crossAxisAlignment: CrossAxisAlignment.start, children: sections);
   }
@@ -295,26 +352,3 @@ class SportsScoreboardCard extends StatelessWidget {
   }
 }
 
-// ── Sub-widget ────────────────────────────────────────────────────────────────
-class _GlassBtn extends StatelessWidget {
-  const _GlassBtn({
-      required this.icon, required this.color, required this.onTap});
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.14),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 17, color: color),
-      ),
-    );
-  }
-}
