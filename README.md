@@ -17,7 +17,7 @@ The Anona project is split into two main components: a Python-based AI backend a
 1. **The Backend (FastAPI + AI Pipeline):** The server handles all the heavy lifting for news curation.
 It utilizes the NewsData.io API to fetch trending articles based on user-specified topics. It then uses
 Trafilatura to cleanly scrape the full article text, bypassing ads and boilerplate. Finally, 
-Google's Gemini 2.5 Flash AI processes the text to generate concise summaries or detailed deep-dive analyses
+Groq AI processes the text to generate concise summaries or detailed deep-dive analyses
 in the user's preferred tone (Professional, Casual, Academic, or Friendly).
    
 2. **The Frontend (Mobile App):**
@@ -46,10 +46,12 @@ To run the full Anona project locally, you will need to set up both the backend 
    ```
 3. Create a `.env` file in the `backend` folder and add your API keys:
    ```env
-   SUPABASE_URL=your_supabase_url
-   SUPABASE_SERVICE_KEY=your_supabase_service_key
-   NEWSDATA_API_KEY=your_newsdata_api_key
-   GEMINI_API_KEY=your_google_gemini_api_key
+   SUPABASE_URL="your_supabase_url"
+   SUPABASE_SERVICE_KEY="your_supabase_service_key"
+   NEWSDATA_API_KEY="your_newsdata_key"
+   GEMINI_API_KEY="your_gemini_key"
+   GROQ_API_KEY="your_groq_key"
+   SPORTS_API_KEY="your_sports_key"
    ```
 4. Start the FastAPI development server:
    ```bash
