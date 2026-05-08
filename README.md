@@ -1,4 +1,4 @@
-Here is a comprehensive root `README.md` you can add to the base of your repository to fulfill the requirement. It covers the entire Anona project, explaining what the application is, how the backend and frontend components work together, and how to set both up. 
+
 
 ***
 
