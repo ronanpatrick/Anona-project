@@ -266,49 +266,69 @@ class SportsScoreboardCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: <Widget>[
-          _buildLogo(game.awayLogo),
-          const SizedBox(width: 10),
+          // ── Left: away logo + team names ───────────────────────────────
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  game.awayTeam,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                      color: Colors.white.withOpacity(0.85),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  'vs. ${game.homeTeam}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                      color: Colors.white.withOpacity(0.55), fontSize: 11, fontWeight: FontWeight.w500),
+                _buildLogo(game.awayLogo),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        game.awayTeam,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        'vs. ${game.homeTeam}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          _buildLogo(game.homeLogo),
+
           const SizedBox(width: 12),
-          // Score
-          Text(
-            '${game.awayScore} – ${game.homeScore}',
-            style: GoogleFonts.inter(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 14,
-              letterSpacing: -0.2,
-            ),
+
+          // ── Right: home logo + score + status (fixed width) ────────────
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildLogo(game.homeLogo),
+              const SizedBox(width: 8),
+              Text(
+                '${game.awayScore}–${game.homeScore}',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildStatusPill(game),
+            ],
           ),
-          const SizedBox(width: 10),
-          _buildStatusPill(game),
         ],
       ),
     );
   }
+
 
   Widget _buildLogo(String? logoUrl) {
     final parsed = logoUrl == null ? null : Uri.tryParse(logoUrl);

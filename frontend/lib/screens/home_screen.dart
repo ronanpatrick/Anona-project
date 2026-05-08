@@ -754,11 +754,16 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        greeting,
-                        style: tt.displaySmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          height: 1.1,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          greeting,
+                          maxLines: 1,
+                          style: tt.displaySmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 2),
