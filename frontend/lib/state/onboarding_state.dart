@@ -120,7 +120,7 @@ enum AiPersonality {
       case AiPersonality.executive:
         return 'executive';
       case AiPersonality.analyst:
-        return 'analyst';
+        return 'professional';  // backend ToneType uses 'professional'
       case AiPersonality.conversationalist:
         return 'conversationalist';
       case AiPersonality.layman:
@@ -141,7 +141,7 @@ enum SummaryTone {
       case SummaryTone.executive:
         return 'executive';
       case SummaryTone.analyst:
-        return 'analyst';
+        return 'professional';  // backend ToneType uses 'professional'
       case SummaryTone.conversationalist:
         return 'conversationalist';
       case SummaryTone.layman:
@@ -196,6 +196,7 @@ enum SummaryTone {
         return SummaryTone.conversationalist;
       case 'layman':
         return SummaryTone.layman;
+      case 'professional':
       case 'analyst':
       default:
         return SummaryTone.analyst;
