@@ -97,53 +97,68 @@ class _OnboardingGate extends StatefulWidget {
 }
 
 class _OnboardingGateState extends State<_OnboardingGate> {
-  late Future<bool> _hasPreferencesFuture;
+  late Future<bool> _onboardingStatusFuture;
 
   @override
   void initState() {
     super.initState();
-    _hasPreferencesFuture = _hasUserPreferences();
+    _onboardingStatusFuture = _checkOnboardingStatus();
   }
 
   @override
   void didUpdateWidget(covariant _OnboardingGate oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) {
-      _hasPreferencesFuture = _hasUserPreferences();
+      _onboardingStatusFuture = _checkOnboardingStatus();
     }
   }
 
-  Future<bool> _hasUserPreferences() async {
-    final row = await Supabase.instance.client
-        .from('user_preferences')
-        .select('id')
-        .eq('id', widget.userId)
-        .maybeSingle();
-    return row != null;
+  Future<bool> _checkOnboardingStatus() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('user_preferences')
+          .select('selected_topics')
+          .eq('id', widget.userId)
+          .maybeSingle();
+
+      if (response == null) return false;
+      
+      final topics = response['selected_topics'] as List?;
+      // If topics is null or empty, they need onboarding
+      return topics != null && topics.isNotEmpty;
+    } catch (e) {
+      debugPrint('DEBUG: Error checking onboarding status: $e');
+      return false;
+    }
   }
 
   void _refreshAfterOnboarding() {
     setState(() {
-      _hasPreferencesFuture = _hasUserPreferences();
+      _onboardingStatusFuture = _checkOnboardingStatus();
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: _hasPreferencesFuture,
+      future: _onboardingStatusFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
+        
         if (snapshot.hasError) {
-          return const AuthScreen();
+          // Fallback to onboarding if there's an error checking status
+          return OnboardingScreen(onCompleted: _refreshAfterOnboarding);
         }
-        if (snapshot.data == true) {
+
+        final hasCompletedOnboarding = snapshot.data ?? false;
+        if (hasCompletedOnboarding) {
           return const MainScaffold();
         }
+        
         return OnboardingScreen(onCompleted: _refreshAfterOnboarding);
       },
     );
