@@ -492,75 +492,95 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildToneCard() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tones = SummaryTone.values;
     return _glassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionLabel('Summary Tone', subtitle: 'How should Anona talk to you?'),
           const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.2,
-            children: SummaryTone.values.map((tone) {
-              final selected = _summaryTone == tone;
-              return GestureDetector(
-                onTap: () => setState(() => _summaryTone = tone),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? AnonaColors.moneyGreen.withOpacity(0.2)
-                        : (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03)),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: selected
-                          ? AnonaColors.moneyGreenLight
-                          : (isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08)),
-                      width: selected ? 1.5 : 1,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Row(
-                        children: [
-                          Text(tone.emoji, style: const TextStyle(fontSize: 16)),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(tone.label,
-                                style: TextStyle(
-                                  color: selected
-                                      ? AnonaColors.moneyGreenLight
-                                      : (isDark ? Colors.white : AnonaColors.textPrimary),
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                )),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(tone.subtitle,
-                          style: TextStyle(
-                              color: isDark ? AnonaColors.silverText : AnonaColors.textSecondary,
-                              fontSize: 10),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
+          // Build rows of 2
+          for (int i = 0; i < tones.length; i += 2) ...[
+            if (i > 0) const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: _buildToneCell(tones[i], isDark)),
+                const SizedBox(width: 10),
+                if (i + 1 < tones.length)
+                  Expanded(child: _buildToneCell(tones[i + 1], isDark))
+                else
+                  const Expanded(child: SizedBox()),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
+
+  Widget _buildToneCell(SummaryTone tone, bool isDark) {
+    final selected = _summaryTone == tone;
+    return GestureDetector(
+      onTap: () => setState(() => _summaryTone = tone),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? AnonaColors.moneyGreen.withOpacity(0.2)
+              : (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03)),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? AnonaColors.moneyGreenLight
+                : (isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08)),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  tone.icon,
+                  size: 15,
+                  color: selected
+                      ? AnonaColors.moneyGreenLight
+                      : (isDark ? AnonaColors.silverText : AnonaColors.textSecondary),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    tone.label,
+                    style: TextStyle(
+                      color: selected
+                          ? AnonaColors.moneyGreenLight
+                          : (isDark ? Colors.white : AnonaColors.textPrimary),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tone.subtitle,
+              style: TextStyle(
+                color: isDark ? AnonaColors.silverText : AnonaColors.textSecondary,
+                fontSize: 11,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   // ── Sports Card ───────────────────────────────────────────────────────────
 

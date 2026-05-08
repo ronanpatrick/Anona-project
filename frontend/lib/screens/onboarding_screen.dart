@@ -487,7 +487,7 @@ class _PersonalityCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Text(personality.emoji, style: const TextStyle(fontSize: 32)),
+            Icon(personality.icon, size: 28, color: isSelected ? cs.primary : cs.onSurfaceVariant),
             const SizedBox(width: 20),
             Expanded(
               child: Column(
@@ -603,7 +603,10 @@ class _Step5DashboardsState extends ConsumerState<_Step5Dashboards>
               labelColor: cs.onPrimary,
               unselectedLabelColor: cs.onSurfaceVariant,
               labelStyle: tt.labelLarge,
-              tabs: const [Tab(text: '🏆  Sports'), Tab(text: '📈  Stocks')],
+              tabs: const [
+                Tab(icon: Icon(Icons.emoji_events_outlined, size: 18), text: 'Sports'),
+                Tab(icon: Icon(Icons.show_chart_rounded, size: 18), text: 'Stocks'),
+              ],
             ),
           ),
         ),

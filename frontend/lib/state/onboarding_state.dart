@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // ── Topic options ──────────────────────────────────────────────────────────────
@@ -102,16 +103,16 @@ enum AiPersonality {
     }
   }
 
-  String get emoji {
+  IconData get icon {
     switch (this) {
       case AiPersonality.executive:
-        return '⚡';
+        return Icons.bolt_rounded;
       case AiPersonality.analyst:
-        return '🔬';
+        return Icons.analytics_outlined;
       case AiPersonality.conversationalist:
-        return '🎙️';
+        return Icons.mic_none_rounded;
       case AiPersonality.layman:
-        return '💬';
+        return Icons.chat_bubble_outline_rounded;
     }
   }
 
@@ -175,16 +176,16 @@ enum SummaryTone {
     }
   }
 
-  String get emoji {
+  IconData get icon {
     switch (this) {
       case SummaryTone.executive:
-        return '⚡';
+        return Icons.bolt_rounded;
       case SummaryTone.analyst:
-        return '🔬';
+        return Icons.analytics_outlined;
       case SummaryTone.conversationalist:
-        return '🎙️';
+        return Icons.mic_none_rounded;
       case SummaryTone.layman:
-        return '💬';
+        return Icons.chat_bubble_outline_rounded;
     }
   }
 

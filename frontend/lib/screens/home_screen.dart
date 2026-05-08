@@ -279,11 +279,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return 'Good evening';
   }
 
-  String _timeOfDayEmoji() {
+  IconData _timeOfDayIcon() {
     final h = DateTime.now().hour;
-    if (h < 12) return '☀️';
-    if (h < 18) return '🌤️';
-    return '🌙';
+    if (h < 12) return Icons.wb_sunny_outlined;
+    if (h < 18) return Icons.wb_cloudy_outlined;
+    return Icons.nightlight_round_outlined;
   }
 
   // ── UI Builders ────────────────────────────────────────────────────────────
@@ -718,10 +718,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     children: <Widget>[
                       Row(
                         children: [
-                          Text(
-                            _timeOfDayEmoji(),
-                            style: const TextStyle(fontSize: 22),
-                          ),
+                          Icon(_timeOfDayIcon(), size: 22, color: cs.onSurfaceVariant),
                           const SizedBox(width: 8),
                           Text(
                             'Anona',
