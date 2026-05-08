@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   SportsScoreboard? _sportsScoreboard;
   final Set<String> _savedArticleKeys = <String>{};
   bool _isLoading = false;
+  bool _isFirstLoad = true;
   bool _isMarketLoading = false;
   bool _isSportsLoading = false;
   List<String> _selectedTopics = <String>[];
@@ -128,7 +129,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _showError('Failed to load digest: $error');
     } finally {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isFirstLoad = false;
+      });
     }
   }
 
@@ -138,9 +142,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final snap = await _apiService.fetchMarketSnapshot();
       if (!mounted) return;
       setState(() => _marketSnapshot = snap);
-    } catch (error) {
+    } catch (_) {
+      // Rate-limit / 503 errors are swallowed silently; the card renders empty.
       if (!mounted) return;
-      _showError('Failed to load market snapshot: $error');
     } finally {
       if (!mounted) return;
       setState(() => _isMarketLoading = false);
@@ -594,17 +598,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildLoadingState() {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     return SliverFillRemaining(
       hasScrollBody: false,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(strokeWidth: 2),
-          const SizedBox(height: 16),
+          // Branded pulsing logo area
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [cs.primary, cs.primary.withOpacity(0.6)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: cs.primary.withOpacity(0.35),
+                  blurRadius: 24,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 36),
+          ),
+          const SizedBox(height: 28),
           Text(
-            'Curating your briefing…',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            'Getting your personalized\nnews ready…',
+            textAlign: TextAlign.center,
+            style: tt.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Curating stories based on your interests',
+            textAlign: TextAlign.center,
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: 140,
+            child: LinearProgressIndicator(
+              borderRadius: BorderRadius.circular(100),
+              minHeight: 3,
+              color: cs.primary,
+              backgroundColor: cs.primary.withOpacity(0.15),
             ),
           ),
         ],
@@ -712,7 +756,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
 
           // ── Deck / loading / empty ─────────────────────────────────────
-          if (_isLoading && !hasAny)
+          if (_isFirstLoad && _isLoading)
             _buildLoadingState()
           else if (!hasAny)
             _buildEmptyState()
