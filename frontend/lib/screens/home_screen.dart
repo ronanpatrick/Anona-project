@@ -15,10 +15,10 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final ApiService _apiService = const ApiService();
   late final PageController _pageController;
   late final AnimationController _greetingAnimController;
@@ -39,6 +39,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _currentPage = 0;
   String? _firstName;
   String _summaryTone = 'professional';
+
+  /// Called externally (e.g. after Profile saves) to re-fetch with the new tone.
+  Future<void> refresh() async {
+    setState(() {
+      _isFirstLoad = true;
+      _articles = [];
+    });
+    await _fetchUserPreferences();
+    await Future.wait([
+      _fetchDailyDigest(),
+      _fetchMarketSnapshot(),
+      _fetchSportsScoreboard(),
+    ]);
+  }
 
   @override
   void initState() {

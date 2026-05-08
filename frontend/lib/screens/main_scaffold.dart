@@ -18,6 +18,7 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
+  final _homeKey = GlobalKey<HomeScreenState>();
 
   static const _destinations = <_NavDestination>[
     _NavDestination(
@@ -37,11 +38,17 @@ class _MainScaffoldState extends State<MainScaffold> {
     ),
   ];
 
-  final List<Widget> _tabs = const <Widget>[
-    HomeScreen(),
-    BriefingScreen(),
-    SavedScreen(),
-  ];
+  late final List<Widget> _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = <Widget>[
+      HomeScreen(key: _homeKey),
+      const BriefingScreen(),
+      const SavedScreen(),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +91,9 @@ class _MainScaffoldState extends State<MainScaffold> {
         ),
       ),
 
-      endDrawer: const MainDrawer(),
+      endDrawer: MainDrawer(
+        onProfileSaved: () => _homeKey.currentState?.refresh(),
+      ),
 
       body: IndexedStack(
         index: _currentIndex,

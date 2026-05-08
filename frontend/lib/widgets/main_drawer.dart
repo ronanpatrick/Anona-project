@@ -10,7 +10,9 @@ import '../screens/settings_screen.dart';
 import '../theme/app_theme.dart';
 
 class MainDrawer extends StatelessWidget {
-  const MainDrawer({super.key});
+  const MainDrawer({super.key, this.onProfileSaved});
+
+  final VoidCallback? onProfileSaved;
 
   Future<void> _navigateTo(BuildContext context, Widget screen) async {
     Navigator.of(context).pop();
@@ -129,7 +131,13 @@ class MainDrawer extends StatelessWidget {
                 _DrawerItem(
                   icon: CupertinoIcons.person_circle,
                   label: 'Profile',
-                  onTap: () => _navigateTo(context, const ProfileScreen()),
+                  onTap: () async {
+                    Navigator.of(context).pop();
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+                    );
+                    onProfileSaved?.call();
+                  },
                 ),
                 _DrawerItem(
                   icon: CupertinoIcons.slider_horizontal_3,
