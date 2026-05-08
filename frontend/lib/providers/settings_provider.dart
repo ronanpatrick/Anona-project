@@ -6,7 +6,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _fontSizeFactorKey = 'settings.fontSizeFactor';
   static const String _audioSpeedKey = 'settings.audioSpeed';
 
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
   double _fontSizeFactor = 1.0;
   double _audioSpeed = 1.0;
 
@@ -61,8 +61,9 @@ class SettingsProvider extends ChangeNotifier {
       case 'dark':
         return ThemeMode.dark;
       case 'system':
-      default:
         return ThemeMode.system;
+      default:
+        return ThemeMode.dark;
     }
   }
 
