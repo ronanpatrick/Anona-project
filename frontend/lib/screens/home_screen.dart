@@ -157,8 +157,17 @@ class HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
       setState(() => _marketSnapshot = snap);
     } catch (_) {
-      // Rate-limit / 503 errors are swallowed silently; the card renders empty.
+      // First attempt failed (rate-limit / cold-start). Retry once after a delay.
+      await Future.delayed(const Duration(seconds: 4));
       if (!mounted) return;
+      try {
+        final snap = await _apiService.fetchMarketSnapshot();
+        if (!mounted) return;
+        setState(() => _marketSnapshot = snap);
+      } catch (_) {
+        // Still failed — card renders empty silently.
+        if (!mounted) return;
+      }
     } finally {
       if (!mounted) return;
       setState(() => _isMarketLoading = false);
