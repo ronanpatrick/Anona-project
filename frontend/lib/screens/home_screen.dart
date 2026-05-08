@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Track current page for dot indicator
   int _currentPage = 0;
   String? _firstName;
-  String _summaryTone = 'analyst';
+  String _summaryTone = 'professional';
 
   @override
   void initState() {
@@ -91,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final List<dynamic> topicsJson = row['selected_topics'] as List<dynamic>? ?? [];
         setState(() {
           _firstName = row['first_name'] as String?;
-          _summaryTone = row['summary_tone'] as String? ?? 'analyst';
+          _summaryTone = row['summary_tone'] as String? ?? 'professional';
           _selectedTopics = topicsJson.map((e) => e.toString()).toList();
         });
       }
