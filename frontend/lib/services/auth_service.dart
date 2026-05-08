@@ -79,11 +79,17 @@ class AuthService {
     try {
       final row = await _client
           .from('user_preferences')
-          .select('id')
+          .select('selected_topics')
           .eq('id', userId)
           .maybeSingle();
 
-      return row != null;
+      if (row == null) return false;
+      
+      final topics = row['selected_topics'];
+      if (topics == null) return false;
+      if (topics is List && topics.isEmpty) return false;
+      
+      return true;
     } catch (e) {
       print('Supabase Error: $e');
       return false;
